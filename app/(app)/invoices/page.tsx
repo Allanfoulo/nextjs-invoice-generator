@@ -1,0 +1,237 @@
+"use client"
+
+import * as React from "react"
+import { useEffect, useMemo, useState, useTransition, Suspense } from "react"
+import { m } from "@/components/ui/motion"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Table, TableBody, TableCell, TableHead, TableHeader } from "@/components/ui/table"
+import { Badge } from "@/components/ui/badge"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Separator } from "@/components/ui/separator"
+import { toast } from "sonner"
+import { Search } from "lucide-react"
+import { AnimatePresence } from "framer-motion"
+import { InlineSpinner } from "@/components/ui/inline-spinner"
+import { fetchClients, fetchCompanySettings, fetchInvoices, formatCurrency, formatDateISO, humanizeStatus } from "@/lib/mappers"
+import type { Client, CompanySettings, Invoice } from "@/lib/invoice-types"
+
+export default function InvoicesPage() {
+  const [loading, setLoading] = useState(true)
+  const [settings, setSettings] = useState<CompanySettings | null>(null)
+  const [clients, setClients] = useState<Client[]>([])
+  const [invoices, setInvoices] = useState<Invoice[]>([])
+
+  const [query, setQuery] = useState("")
+  const [status, setStatus] = useState<"all" | Invoice["status"]>("all")
+  const [isPending, startUiTransition] = useTransition()
+
+  useEffect(() => {
+    let mounted = true
+    ;(async () => {
+      try {
+        setLoading(true)
+        const [s, cs, is] = await Promise.all([fetchCompanySettings(), fetchClients(), fetchInvoices()])
+        if (!mounted) return
+        setSettings(s)
+        setClients(cs)
+        setInvoices(is)
+      } catch (e) {
+        console.error(e)
+        toast.error("Failed to load invoices")
+      } finally {
+        setLoading(false)
+      }
+    })()
+    return () => {
+      mounted = false
+    }
+  }, [])
+
+  const filtered = useMemo(() => {
+    return invoices.filter((i) => {
+      const client = clients.find((c) => c.id === i.clientId)
+      const text = `${i.invoiceNumber} ${client?.company ?? ""}`.toLowerCase()
+      const matchesQuery = text.includes(query.toLowerCase())
+      const matchesStatus = status === "all" ? true : i.status === status
+      return matchesQuery && matchesStatus
+    })
+  }, [invoices, clients, query, status])
+
+  function statusBadgeVariant(s: Invoice["status"]) {
+    switch (s) {
+      case "paid":
+        return "default" as const
+      case "overdue":
+        return "destructive" as const
+      case "partially_paid":
+        return "secondary" as const
+      case "sent":
+        return "secondary" as const
+      case "draft":
+      default:
+        return "secondary" as const
+    }
+  }
+
+  return (
+    <m.div
+      className="space-y-6"
+      initial={{ opacity: 0, y: 4, filter: "blur(4px)" }}
+      animate={{ opacity: 1, y: 0, filter: "blur(0)" }}
+      transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
+    >
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle>Invoices</CardTitle>
+          <CardDescription>Browse and manage invoices</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {/* Toolbar */}
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <div className="relative w-full sm:max-w-sm">
+              <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" aria-hidden="true" />
+              <Input
+                aria-label="Search invoices"
+                placeholder="Search by invoice # or client"
+                className="pl-8 pr-8 transition-[border-color,box-shadow] duration-150"
+                value={query}
+                onChange={(e) =>
+                  startUiTransition(() => {
+                    setQuery(e.target.value)
+                  })
+                }
+              />
+              <div className="absolute right-2.5 top-2.5 text-muted-foreground">
+                <AnimatePresence>{isPending && <InlineSpinner size={14} />}</AnimatePresence>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <label htmlFor="status-filter" className="sr-only">
+                Status filter
+              </label>
+              <Select
+                value={status}
+                onValueChange={(v) =>
+                  startUiTransition(() => {
+                    setStatus(v as any)
+                  })
+                }
+              >
+                <SelectTrigger id="status-filter" className="w-44">
+                  <SelectValue placeholder="Filter status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All</SelectItem>
+                  <SelectItem value="draft">Draft</SelectItem>
+                  <SelectItem value="sent">Sent</SelectItem>
+                  <SelectItem value="partially_paid">Partially paid</SelectItem>
+                  <SelectItem value="paid">Paid</SelectItem>
+                  <SelectItem value="overdue">Overdue</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="grow" />
+          </div>
+
+          <Separator />
+
+          {/* Table */}
+          <Suspense fallback={<div className="rounded-md border p-6 text-sm text-muted-foreground">Loading…</div>}>
+            <div className="rounded-md border">
+              <Table>
+                <TableHeader>
+                  <tr>
+                    <TableHead className="w-[140px]">Invoice #</TableHead>
+                    <TableHead>Client</TableHead>
+                    <TableHead>Date</TableHead>
+                    <TableHead>Due Date</TableHead>
+                    <TableHead className="text-right">Total</TableHead>
+                    <TableHead className="text-right">Status</TableHead>
+                  </tr>
+                </TableHeader>
+                <TableBody>
+                  {loading && (
+                    <tr>
+                      <TableCell colSpan={6} className="h-24 text-center text-sm text-muted-foreground">
+                        Loading…
+                      </TableCell>
+                    </tr>
+                  )}
+
+                  {!loading && filtered.length === 0 && (
+                    <AnimatePresence mode="wait">
+                      <m.tr
+                        key="empty"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+                      >
+                        <TableCell colSpan={6} className="h-24 text-center">
+                          <m.div
+                            className="inline-flex flex-col items-center justify-center text-sm text-muted-foreground"
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            transition={{ duration: 0.18 }}
+                          >
+                            <m.svg
+                              width="18"
+                              height="18"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              className="mb-1"
+                              animate={{ y: [0, -2, 0] }}
+                              transition={{ repeat: Infinity, duration: 1.6, ease: "easeInOut" }}
+                              aria-hidden="true"
+                            >
+                              <rect x="4" y="4" width="16" height="16" rx="3" stroke="currentColor" strokeWidth="2" />
+                            </m.svg>
+                            No invoices found.
+                          </m.div>
+                        </TableCell>
+                      </m.tr>
+                    </AnimatePresence>
+                  )}
+
+                  {!loading && filtered.length > 0 && (
+                    <AnimatePresence initial={false}>
+                      {filtered.map((i) => {
+                        const client = clients.find((c) => c.id === i.clientId)
+                        return (
+                          <m.tr
+                            key={i.id}
+                            initial={{ opacity: 0, y: 4 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: -2 }}
+                            transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+                          >
+                            <TableCell className="font-medium">{i.invoiceNumber}</TableCell>
+                            <TableCell>{client?.company ?? "—"}</TableCell>
+                            <TableCell>{formatDateISO(i.dateIssued)}</TableCell>
+                            <TableCell>{formatDateISO(i.dueDate)}</TableCell>
+                            <TableCell className="text-right">
+                              {formatCurrency(i.totalInclVat, settings?.currency ?? "ZAR")}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <Badge variant={statusBadgeVariant(i.status)} className="capitalize">
+                                {humanizeStatus(i.status)}
+                              </Badge>
+                            </TableCell>
+                          </m.tr>
+                        )
+                      })}
+                    </AnimatePresence>
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          </Suspense>
+        </CardContent>
+      </Card>
+    </m.div>
+  )
+}

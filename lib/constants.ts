@@ -1,0 +1,1 @@
+export const TOKEN_COOKIE = "demo_token"
