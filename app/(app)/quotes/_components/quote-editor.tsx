@@ -7,7 +7,7 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
 import { toast } from "sonner"
 import { motion, AnimatePresence } from "framer-motion"
-import { Plus, Trash2, Eye, Save, Package, Calculator, AlertCircle } from "lucide-react"
+import { Plus, Trash2, Eye, Save, Package, Calculator, AlertCircle, FileText } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -17,7 +17,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Checkbox } from "@/components/ui/checkbox"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form"
 import { Badge } from "@/components/ui/badge"
 
@@ -25,6 +25,7 @@ import type { Quote, Client, CompanySettings, Item, Package as PackageType } fro
 import { QuoteStatus, ItemType } from "@/lib/invoice-types"
 import { fetchClients, fetchCompanySettings, formatCurrency, fetchPackages } from "@/lib/mappers"
 import { supabase } from "@/lib/supabase"
+import { QuotePDFPreview } from "@/components/ui/quote-pdf-preview"
 
 
 const quoteSchema = z.object({
@@ -48,12 +49,14 @@ type QuoteFormValues = z.infer<typeof quoteSchema>
 
 interface QuoteEditorProps {
   quote?: Quote | null
-  open: boolean
-  onOpenChange: (open: boolean) => void
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
   onSaved: (quote: Quote) => void
+  onCancel?: () => void
 }
 
-export function QuoteEditor({ quote, open, onOpenChange, onSaved }: QuoteEditorProps) {
+export function QuoteEditor({ quote, open = true, onOpenChange, onSaved, onCancel }: QuoteEditorProps) {
+  const isPageMode = !onOpenChange // If no onOpenChange, we're in page mode
   const [loading, setLoading] = useState(false)
   const [clients, setClients] = useState<Client[]>([])
   const [settings, setSettings] = useState<CompanySettings | null>(null)
@@ -61,6 +64,7 @@ export function QuoteEditor({ quote, open, onOpenChange, onSaved }: QuoteEditorP
   const [items, setItems] = useState<Item[]>(quote?.items || [])
   const [selectedPackage, setSelectedPackage] = useState<string>("")
   const [isCalculating, setIsCalculating] = useState(false)
+  const [pdfPreviewOpen, setPdfPreviewOpen] = useState(false)
 
   const form = useForm<QuoteFormValues>({
     resolver: zodResolver(quoteSchema),
@@ -153,6 +157,36 @@ export function QuoteEditor({ quote, open, onOpenChange, onSaved }: QuoteEditorP
 
   const totals = React.useMemo(() => calculateTotals(items), [items, calculateTotals]);
 
+  // Generate preview quote data for PDF
+  const generatePreviewQuote = useCallback(() => {
+    const formValues = form.getValues()
+    const selectedClient = clients.find(c => c.id === formValues.clientId)
+
+    if (!selectedClient || !settings) return null
+
+    const previewQuote: Quote = {
+      id: quote?.id || "preview",
+      quoteNumber: quote?.quoteNumber || "PREVIEW",
+      createdByUserId: quote?.createdByUserId || "preview",
+      dateIssued: formValues.dateIssued,
+      validUntil: formValues.validUntil,
+      clientId: formValues.clientId,
+      items: items,
+      subtotalExclVat: totals.subtotalExclVat,
+      vatAmount: totals.vatAmount,
+      totalInclVat: totals.totalInclVat,
+      depositPercentage: formValues.depositPercentage,
+      depositAmount: totals.depositAmount,
+      balanceRemaining: totals.balanceRemaining,
+      status: formValues.status,
+      termsText: formValues.termsText || "",
+      notes: formValues.notes || "",
+      createdAt: quote?.createdAt || new Date().toISOString(),
+      updatedAt: quote?.updatedAt || new Date().toISOString(),
+    }
+
+    return { quote: previewQuote, client: selectedClient, settings }
+  }, [form, clients, settings, items, totals, quote])
 
   // Effect to manage the `isCalculating` state based on changes in items or form values
   useEffect(() => {
@@ -212,14 +246,13 @@ export function QuoteEditor({ quote, open, onOpenChange, onSaved }: QuoteEditorP
       return
     }
 
+    if (!settings) {
+      toast.error("Company settings not loaded. Please try again.")
+      return
+    }
+
     setLoading(true)
     try {
-      const quoteData = {
-        ...values,
-        items,
-        ...totals,
-        createdByUserId: "user1", // Hardcoded for demo
-      }
 
       if (quote) {
         // Update existing quote
@@ -254,47 +287,241 @@ export function QuoteEditor({ quote, open, onOpenChange, onSaved }: QuoteEditorP
         toast.success("Quote updated successfully")
       } else {
         // Create new quote
-        const nextQuoteNumber = settings ? `${settings.numberingFormatQuote.replace('{seq:04d}', settings.nextQuoteNumber.toString().padStart(4, '0'))}` : `Q-${Date.now()}`
+        const currentYear = new Date().getFullYear().toString()
+        // Generate the initial quote number
+        const nextQuoteNumber = settings.numberingFormatQuote
+          .replace('{YYYY}', currentYear)
+          .replace('{seq:04d}', settings.nextQuoteNumber.toString().padStart(4, '0'))
+
+        const quoteInsertData = {
+          quote_number: nextQuoteNumber,
+          client_id: values.clientId,
+          date_issued: values.dateIssued,
+          valid_until: values.validUntil,
+          status: values.status,
+          deposit_percentage: values.depositPercentage,
+          notes: values.notes || null,
+          terms_text: values.termsText || null,
+          subtotal_excl_vat: totals.subtotalExclVat,
+          vat_amount: totals.vatAmount,
+          total_incl_vat: totals.totalInclVat,
+          deposit_amount: totals.depositAmount,
+          balance_remaining: totals.balanceRemaining,
+        }
+
+        console.log("Creating quote with data:", quoteInsertData)
+
+        // Test the connection and get current user
+        try {
+          console.log("=== DEBUG: Starting authentication and connection tests ===")
+
+          // Check if we can get the current user
+          const { data: { user }, error: userError } = await supabase.auth.getUser()
+
+          console.log("Auth response:", { user: user?.id, userError })
+
+          if (userError) {
+            console.error("Auth user error:", userError)
+            throw new Error(`Authentication error: ${userError.message}`)
+          }
+
+          if (!user) {
+            console.error("No authenticated user found - checking session...")
+            const { data: { session }, error: sessionError } = await supabase.auth.getSession()
+            console.log("Session data:", { session: session?.access_token?.substring(0, 20) + "...", sessionError })
+            throw new Error("No authenticated user found")
+          }
+
+          console.log("Current user ID:", user.id)
+
+          // Update the quote data with real user ID
+          const userId = user.id
+          console.log("Raw user ID from auth:", userId)
+
+          // Validate UUID format
+          const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+          if (!uuidRegex.test(userId)) {
+            console.error("Invalid UUID format for user ID:", userId)
+            throw new Error(`Invalid user ID format: ${userId}`)
+          }
+
+          quoteInsertData.created_by_user_id = userId
+          console.log("Setting created_by_user_id to:", userId)
+
+          // Test database connection with proper error handling
+          console.log("Testing database connection...")
+          const { data: testData, error: testError } = await supabase
+            .from("quotes")
+            .select("id, created_by_user_id")
+            .limit(1)
+
+          console.log("Connection test result:", { testData, testError })
+
+          if (testError) {
+            console.error("Connection test failed:", testError)
+            throw new Error(`Database connection failed: ${testError.message}`)
+          }
+
+          console.log("Database connection test successful")
+
+          // Check if user exists in the users table
+          console.log("Checking if user exists in users table...")
+          const { data: userExists, error: userCheckError } = await supabase
+            .from("users")
+            .select("id")
+            .eq("id", userId)
+            .single()
+
+          console.log("User check result:", { userExists, userCheckError })
+
+          // Check if user exists and handle appropriately
+          console.log("User exists check:", {
+            userExists: !!userExists,
+            userCheckError: userCheckError,
+            userCheckErrorKeys: userCheckError ? Object.keys(userCheckError) : [],
+            userId: userId
+          })
+
+          // Only create user if they don't exist in the users table
+          if (!userExists) {
+            console.warn("User not found in users table. Creating user record...")
+
+            // Create user record in the users table
+            const { data: newUser, error: createError } = await supabase
+              .from("users")
+              .insert([
+                {
+                  id: userId,
+                  email: user.email,
+                  name: user.email?.split('@')[0] || 'User', // Use email prefix as name or fallback
+                  role: 'viewer', // Default role for new users (valid: admin, sales, viewer)
+                  created_at: new Date().toISOString()
+                }
+              ])
+              .select()
+              .single()
+
+            if (createError) {
+              console.error("Failed to create user record:", createError)
+              throw new Error(`Failed to create user record: ${createError.message}`)
+            }
+
+            console.log("User record created successfully:", newUser)
+          }
+
+          console.log("Quote data to insert:", JSON.stringify(quoteInsertData, null, 2))
+          console.log("=== DEBUG: About to perform insert ===")
+        } catch (connError) {
+          console.error("Connection test error:", connError)
+          throw new Error(`Pre-insert validation failed: ${connError instanceof Error ? connError.message : String(connError)}`)
+        }
 
         const { data, error } = await supabase
           .from("quotes")
-          .insert({
-            quote_number: nextQuoteNumber,
-            created_by_user_id: "user1",
-            client_id: values.clientId,
-            date_issued: values.dateIssued,
-            valid_until: values.validUntil,
-            status: values.status,
-            deposit_percentage: values.depositPercentage,
-            notes: values.notes,
-            terms_text: values.termsText,
-            subtotal_excl_vat: totals.subtotalExclVat,
-            vat_amount: totals.vatAmount,
-            total_incl_vat: totals.totalInclVat,
-            deposit_amount: totals.depositAmount,
-            balance_remaining: totals.balanceRemaining,
-          })
+          .insert(quoteInsertData)
           .select()
           .single()
 
-        if (error) throw error
+        if (error) {
+          console.error("=== DEBUG: Supabase insert error ===")
+          console.error("Error object type:", typeof error)
+          console.error("Error object keys:", Object.keys(error))
+          console.error("Error stringified:", JSON.stringify(error))
+          console.error("Error message:", error?.message)
+          console.error("Error code:", error?.code)
+          console.error("Error details:", error?.details)
+          console.error("Error hint:", error?.hint)
+          console.error("Full error object:", error)
+
+          // Check for specific error types
+          if (error.code === '23505') {
+            if (error.message?.includes('quotes_quote_number_key')) {
+              // Duplicate quote number - increment and retry
+              console.log('Duplicate quote number detected, incrementing and retrying...')
+
+              // Update next quote number in settings to skip the conflicting number
+              try {
+                const { error: updateError } = await supabase
+                  .from("settings")
+                  .update({
+                    next_quote_number: settings.nextQuoteNumber + 1
+                  })
+                  .eq("id", settings.id)
+
+                if (updateError) {
+                  console.error("Failed to update next quote number:", updateError)
+                } else {
+                  console.log("Updated next quote number to:", settings.nextQuoteNumber + 1)
+                  // Refresh settings to get the updated quote number
+                  const { data: updatedSettings } = await supabase
+                    .from("settings")
+                    .select("*")
+                    .single()
+
+                  if (updatedSettings) {
+                    setSettings(updatedSettings)
+                  }
+                }
+              } catch (updateError) {
+                console.error("Error updating next quote number:", updateError)
+              }
+
+              throw new Error('Quote number conflict detected. Please try again - the system has been updated to use the next available number.')
+            } else {
+              throw new Error('Duplicate entry detected - please check all unique fields')
+            }
+          } else if (error.code === '23503') {
+            if (error.details?.includes('users')) {
+              throw new Error('User validation failed - your user account may not be properly set up in the system')
+            } else if (error.details?.includes('client')) {
+              throw new Error('Invalid client reference - please select a valid client')
+            } else {
+              throw new Error('Foreign key constraint violated - please check all references')
+            }
+          } else if (error.code === '22P02') {
+            throw new Error('Invalid data format - please check all field formats')
+          } else if (error.code === '23514') {
+            throw new Error('Data validation failed - please check all required fields')
+          } else if (error.code === '42501') {
+            throw new Error('Permission denied - you may not have the necessary permissions')
+          } else {
+            throw new Error(`Quote insert failed: ${error.message || JSON.stringify(error)}`)
+          }
+        }
+
+        if (!data) {
+          throw new Error("No data returned from quote insert")
+        }
+
+        console.log("Quote created successfully:", data.id)
 
         // First insert the items into the items table
         const itemInserts = items.map(item => ({
-          description: item.description,
-          unit_price: item.unitPrice,
-          qty: item.qty,
-          taxable: item.taxable,
-          item_type: item.itemType,
-          unit: item.unit,
+          description: item.description || "Untitled Item",
+          unit_price: item.unitPrice || 0,
+          qty: item.qty || 1,
+          taxable: item.taxable !== false,
+          item_type: item.itemType || "Fixed",
+          unit: item.unit || "each",
         }))
+
+        console.log("Inserting items:", itemInserts.length)
 
         const { data: insertedItems, error: itemsError } = await supabase
           .from("items")
           .insert(itemInserts)
           .select()
 
-        if (itemsError) throw itemsError
+        if (itemsError) {
+          console.error("Items insert error:", itemsError)
+          throw itemsError
+        }
+
+        if (!insertedItems || insertedItems.length === 0) {
+          throw new Error("No items were inserted")
+        }
+
+        console.log("Items inserted:", insertedItems.length)
 
         // Then create the junction records in quote_items
         const quoteItemInserts = insertedItems.map(item => ({
@@ -302,13 +529,16 @@ export function QuoteEditor({ quote, open, onOpenChange, onSaved }: QuoteEditorP
           item_id: item.id,
         }))
 
+        console.log("Creating quote-item relationships:", quoteItemInserts.length)
+
         const { error: quoteItemsError } = await supabase
           .from("quote_items")
           .insert(quoteItemInserts)
 
-        if (quoteItemsError) throw quoteItemsError
-
-        if (itemsError) throw itemsError
+        if (quoteItemsError) {
+          console.error("Quote items insert error:", quoteItemsError)
+          throw quoteItemsError
+        }
 
         const newQuote: Quote = {
           id: data.id,
@@ -327,47 +557,91 @@ export function QuoteEditor({ quote, open, onOpenChange, onSaved }: QuoteEditorP
           updatedAt: data.updated_at,
         }
 
+        // Update the next quote number in settings
+        try {
+          const { error: updateSettingsError } = await supabase
+            .from("settings")
+            .update({
+              next_quote_number: settings.nextQuoteNumber + 1
+            })
+            .eq("id", settings.id)
+
+          if (updateSettingsError) {
+            console.error("Failed to update next quote number:", updateSettingsError)
+            // Don't throw here - the quote was created successfully, just log the warning
+          } else {
+            console.log("Updated next quote number to:", settings.nextQuoteNumber + 1)
+            // Refresh settings to get the updated next quote number
+            const { data: updatedSettings } = await supabase
+              .from("settings")
+              .select("*")
+              .single()
+
+            if (updatedSettings) {
+              setSettings(updatedSettings)
+              console.log("Settings refreshed with new next quote number:", updatedSettings.next_quote_number)
+            }
+          }
+        } catch (updateError) {
+          console.error("Error updating next quote number:", updateError)
+          // Don't throw here - the quote was created successfully
+        }
+
         onSaved(newQuote)
         toast.success("Quote created successfully")
       }
 
-      onOpenChange(false)
+      if (onOpenChange) {
+        onOpenChange(false)
+      } else if (onCancel) {
+        onCancel()
+      }
     } catch (error: unknown) {
       console.error("Failed to save quote:", error)
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
+      let errorMessage = 'Unknown error occurred'
+
+      if (error instanceof Error) {
+        errorMessage = error.message
+      } else if (typeof error === 'object' && error !== null) {
+        try {
+          errorMessage = JSON.stringify(error)
+        } catch {
+          errorMessage = 'Complex error object'
+        }
+      }
+
       toast.error(`Failed to save quote: ${errorMessage}`)
     } finally {
       setLoading(false)
     }
   }
 
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-7xl max-h-[95vh] overflow-hidden p-0 gap-0">
+  const content = (
+    <>
+      <motion.div
+      initial={{ opacity: 0, scale: isPageMode ? 1 : 0.95 }}
+      animate={{ opacity: 1, scale: 1 }}
+      exit={{ opacity: 0, scale: isPageMode ? 1 : 0.95 }}
+      transition={{ duration: 0.2 }}
+      className={`flex flex-col ${isPageMode ? 'min-h-screen' : 'h-full'}`}
+    >
+      <div className={`${isPageMode ? 'px-6 py-4 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60' : 'px-6 py-4 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60'}`}>
         <motion.div
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          exit={{ opacity: 0, scale: 0.95 }}
-          transition={{ duration: 0.2 }}
-          className="flex flex-col h-full"
+          initial={{ y: -10, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          transition={{ delay: 0.1 }}
         >
-          <DialogHeader className="px-6 py-4 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-            <motion.div
-              initial={{ y: -10, opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
-              transition={{ delay: 0.1 }}
-            >
-              <DialogTitle className="text-xl font-semibold flex items-center gap-2">
-                <Calculator className="h-5 w-5" />
-                {quote ? "Edit Quote" : "Create New Quote"}
-              </DialogTitle>
-              <DialogDescription className="mt-1">
-                {quote ? "Update quote details and manage items" : "Build a professional quote with items, packages, and pricing"}
-              </DialogDescription>
-            </motion.div>
-          </DialogHeader>
+          <h1 className="text-xl font-semibold flex items-center gap-2">
+            <Calculator className="h-5 w-5" />
+            {quote ? "Edit Quote" : "Create New Quote"}
+          </h1>
+          <p className="mt-1 text-muted-foreground">
+            {quote ? "Update quote details and manage items" : "Build a professional quote with items, packages, and pricing"}
+          </p>
+        </motion.div>
+      </div>
 
-          <div className="flex-1 overflow-y-auto">
+      <div className={`flex-1 overflow-y-auto ${isPageMode ? 'px-6 pb-6' : ''}`}>
             <Form {...form}>
               <form onSubmit={form.handleSubmit(handleSubmit)} className="p-6 space-y-6">
                 {/* Quote Details */}
@@ -387,7 +661,7 @@ export function QuoteEditor({ quote, open, onOpenChange, onSaved }: QuoteEditorP
                       </CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-6">
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                         <FormField
                           control={form.control}
                           name="clientId"
@@ -487,7 +761,7 @@ export function QuoteEditor({ quote, open, onOpenChange, onSaved }: QuoteEditorP
                         />
                       </div>
 
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                         <FormField
                           control={form.control}
                           name="dateIssued"
@@ -607,18 +881,18 @@ export function QuoteEditor({ quote, open, onOpenChange, onSaved }: QuoteEditorP
                           </Button>
                         </motion.div>
                       ) : (
-                        <div className="rounded-md border overflow-hidden">
-                          <div className="overflow-x-auto">
+                        <div className="rounded-md border overflow-hidden max-h-[400px] overflow-y-auto">
+                          <div className="min-w-full">
                             <Table>
-                              <TableHeader>
+                              <TableHeader className="sticky top-0 bg-background border-b z-10">
                                 <TableRow className="bg-muted/50">
-                                  <TableHead className="min-w-[200px]">Description</TableHead>
-                                  <TableHead className="min-w-[80px]">Unit</TableHead>
-                                  <TableHead className="min-w-[80px]">Qty</TableHead>
-                                  <TableHead className="min-w-[100px]">Unit Price</TableHead>
-                                  <TableHead className="min-w-[100px]">Total</TableHead>
-                                  <TableHead className="min-w-[80px]">Taxable</TableHead>
-                                  <TableHead className="w-[50px]"></TableHead>
+                                  <TableHead className="min-w-[200px] sm:min-w-[250px] w-[35%] sm:w-[40%]">Description</TableHead>
+                                  <TableHead className="min-w-[60px] sm:min-w-[80px] w-[10%] hidden sm:table-cell">Unit</TableHead>
+                                  <TableHead className="min-w-[60px] sm:min-w-[80px] w-[10%]">Qty</TableHead>
+                                  <TableHead className="min-w-[80px] sm:min-w-[120px] w-[15%]">Price</TableHead>
+                                  <TableHead className="min-w-[80px] sm:min-w-[120px] w-[15%] hidden sm:table-cell">Total</TableHead>
+                                  <TableHead className="min-w-[60px] sm:min-w-[80px] w-[10%] sm:w-[5%]">Tax</TableHead>
+                                  <TableHead className="w-[40px] sm:w-[50px] w-[5%]"></TableHead>
                                 </TableRow>
                               </TableHeader>
                               <TableBody>
@@ -632,74 +906,79 @@ export function QuoteEditor({ quote, open, onOpenChange, onSaved }: QuoteEditorP
                                       transition={{ duration: 0.2 }}
                                       className="group hover:bg-muted/50"
                                     >
-                                      <TableCell>
+                                      <TableCell className="w-[35%] sm:w-[40%]">
                                         <Input
                                           value={item.description}
                                           onChange={(e) => updateItem(index, "description", e.target.value)}
                                           placeholder="Item description"
-                                          className="border-0 focus:ring-2 focus:ring-primary/20 bg-transparent"
+                                          className="w-full border-0 focus:ring-2 focus:ring-primary/20 bg-transparent"
                                           aria-label={`Description for item ${index + 1}`}
                                         />
                                       </TableCell>
-                                      <TableCell>
+                                      <TableCell className="w-[10%] hidden sm:table-cell">
                                         <Input
                                           value={item.unit}
                                           onChange={(e) => updateItem(index, "unit", e.target.value)}
                                           placeholder="each"
-                                          className="w-16 border-0 focus:ring-2 focus:ring-primary/20 bg-transparent"
+                                          className="w-full min-w-[60px] border-0 focus:ring-2 focus:ring-primary/20 bg-transparent"
                                           aria-label={`Unit for item ${index + 1}`}
                                         />
                                       </TableCell>
-                                      <TableCell>
+                                      <TableCell className="w-[10%]">
                                         <Input
                                           type="number"
                                           value={item.qty}
                                           onChange={(e) => updateItem(index, "qty", parseFloat(e.target.value) || 0)}
-                                          className="w-16 border-0 focus:ring-2 focus:ring-primary/20 bg-transparent"
+                                          className="w-full min-w-[60px] border-0 focus:ring-2 focus:ring-primary/20 bg-transparent"
                                           min="0.01"
                                           step="0.01"
                                           aria-label={`Quantity for item ${index + 1}`}
                                         />
                                       </TableCell>
-                                      <TableCell>
+                                      <TableCell className="w-[15%]">
                                         <Input
                                           type="number"
                                           step="0.01"
                                           value={item.unitPrice}
                                           onChange={(e) => updateItem(index, "unitPrice", parseFloat(e.target.value) || 0)}
-                                          className="w-24 border-0 focus:ring-2 focus:ring-primary/20 bg-transparent"
+                                          className="w-full min-w-[80px] border-0 focus:ring-2 focus:ring-primary/20 bg-transparent"
                                           min="0"
                                           aria-label={`Unit price for item ${index + 1}`}
                                         />
                                       </TableCell>
-                                      <TableCell className="font-medium">
+                                      <TableCell className="w-[15%] font-medium hidden sm:table-cell">
                                         <motion.span
                                           key={item.unitPrice * item.qty}
                                           initial={{ scale: 1.1, color: "#22c55e" }}
-                                          animate={{ scale: 1, color: "inherit" }}
+                                          animate={{ scale: 1, color: "hsl(var(--foreground))" }}
                                           transition={{ duration: 0.2 }}
+                                          className="font-mono"
                                         >
                                           {formatCurrency(item.unitPrice * item.qty, settings?.currency)}
                                         </motion.span>
                                       </TableCell>
-                                      <TableCell>
-                                        <Checkbox
-                                          checked={item.taxable}
-                                          onCheckedChange={(checked) => updateItem(index, "taxable", !!checked)}
-                                          aria-label={`Taxable for item ${index + 1}`}
-                                        />
+                                      <TableCell className="w-[10%] sm:w-[5%]">
+                                        <div className="flex justify-center">
+                                          <Checkbox
+                                            checked={item.taxable}
+                                            onCheckedChange={(checked) => updateItem(index, "taxable", !!checked)}
+                                            aria-label={`Taxable for item ${index + 1}`}
+                                          />
+                                        </div>
                                       </TableCell>
-                                      <TableCell>
-                                        <Button
-                                          type="button"
-                                          variant="ghost"
-                                          size="sm"
-                                          onClick={() => removeItem(index)}
-                                          className="opacity-0 group-hover:opacity-100 transition-opacity focus:opacity-100"
-                                          aria-label={`Remove item ${index + 1}`}
-                                        >
-                                          <Trash2 className="h-4 w-4 text-destructive" />
-                                        </Button>
+                                      <TableCell className="w-[5%]">
+                                        <div className="flex justify-center">
+                                          <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="sm"
+                                            onClick={() => removeItem(index)}
+                                            className="opacity-0 group-hover:opacity-100 transition-opacity focus:opacity-100 h-8 w-8 p-0"
+                                            aria-label={`Remove item ${index + 1}`}
+                                          >
+                                            <Trash2 className="h-4 w-4 text-destructive" />
+                                          </Button>
+                                        </div>
                                       </TableCell>
                                     </motion.tr>
                                   ))}
@@ -745,19 +1024,19 @@ export function QuoteEditor({ quote, open, onOpenChange, onSaved }: QuoteEditorP
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                           <div className="space-y-3">
                             <motion.div
-                              className="flex justify-between items-center py-2"
+                              className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1 py-2"
                               key={`subtotal-${totals.subtotalExclVat}`}
                               initial={{ scale: 1.02 }}
                               animate={{ scale: 1 }}
                             >
                               <span className="text-sm font-medium">Subtotal (Excl. VAT)</span>
-                              <span className="font-mono text-sm">
+                              <span className="font-mono text-sm text-right">
                                 {formatCurrency(totals.subtotalExclVat, settings?.currency)}
                               </span>
                             </motion.div>
 
                             <motion.div
-                              className="flex justify-between items-center py-2"
+                              className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1 py-2"
                               key={`vat-${totals.vatAmount}`}
                               initial={{ scale: 1.02 }}
                               animate={{ scale: 1 }}
@@ -765,7 +1044,7 @@ export function QuoteEditor({ quote, open, onOpenChange, onSaved }: QuoteEditorP
                               <span className="text-sm font-medium">
                                 VAT ({settings?.vatPercentage}%)
                               </span>
-                              <span className="font-mono text-sm">
+                              <span className="font-mono text-sm text-right">
                                 {formatCurrency(totals.vatAmount, settings?.currency)}
                               </span>
                             </motion.div>
@@ -773,27 +1052,27 @@ export function QuoteEditor({ quote, open, onOpenChange, onSaved }: QuoteEditorP
                             <Separator />
 
                             <motion.div
-                              className="flex justify-between items-center py-3"
+                              className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1 py-3"
                               key={`total-${totals.totalInclVat}`}
                               initial={{ scale: 1.05, color: "#22c55e" }}
-                              animate={{ scale: 1, color: "inherit" }}
+                              animate={{ scale: 1, color: "hsl(var(--foreground))" }}
                               transition={{ duration: 0.3 }}
                             >
                               <span className="text-lg font-bold">Total (Incl. VAT)</span>
-                              <span className="font-mono text-lg font-bold text-primary">
+                              <span className="font-mono text-lg font-bold text-primary text-right">
                                 {formatCurrency(totals.totalInclVat, settings?.currency)}
                               </span>
                             </motion.div>
                           </div>
 
                           <div className="space-y-3">
-                            <div className="flex items-center justify-between py-2">
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 py-2">
                               <span className="text-sm font-medium">Deposit Required</span>
                               <FormField
                                 control={form.control}
                                 name="depositPercentage"
                                 render={({ field }) => (
-                                  <div className="flex items-center gap-2">
+                                  <div className="flex items-center gap-2 ml-auto sm:ml-0">
                                     <Input
                                       type="number"
                                       {...field}
@@ -809,25 +1088,25 @@ export function QuoteEditor({ quote, open, onOpenChange, onSaved }: QuoteEditorP
                             </div>
 
                             <motion.div
-                              className="flex justify-between items-center py-2"
+                              className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1 py-2"
                               key={`deposit-${totals.depositAmount}`}
                               initial={{ scale: 1.02 }}
                               animate={{ scale: 1 }}
                             >
                               <span className="text-sm font-medium">Deposit Amount</span>
-                              <span className="font-mono text-sm">
+                              <span className="font-mono text-sm text-right">
                                 {formatCurrency(totals.depositAmount, settings?.currency)}
                               </span>
                             </motion.div>
 
                             <motion.div
-                              className="flex justify-between items-center py-2"
+                              className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1 py-2"
                               key={`balance-${totals.balanceRemaining}`}
                               initial={{ scale: 1.02 }}
                               animate={{ scale: 1 }}
                             >
                               <span className="text-sm font-medium">Balance Remaining</span>
-                              <span className="font-mono text-sm">
+                              <span className="font-mono text-sm text-right">
                                 {formatCurrency(totals.balanceRemaining, settings?.currency)}
                               </span>
                             </motion.div>
@@ -921,11 +1200,27 @@ export function QuoteEditor({ quote, open, onOpenChange, onSaved }: QuoteEditorP
                   <Button
                     type="button"
                     variant="outline"
-                    onClick={() => onOpenChange(false)}
+                    onClick={() => {
+                      if (onOpenChange) {
+                        onOpenChange(false)
+                      } else if (onCancel) {
+                        onCancel()
+                      }
+                    }}
                     className="flex-1 sm:flex-none focus:ring-2 focus:ring-primary/20"
                     disabled={loading}
                   >
                     Cancel
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setPdfPreviewOpen(true)}
+                    disabled={loading || items.length === 0 || !form.getValues().clientId}
+                    className="flex-1 sm:flex-none focus:ring-2 focus:ring-primary/20"
+                  >
+                    <FileText className="h-4 w-4 mr-2" />
+                    Preview PDF
                   </Button>
                   <Button
                     type="submit"
@@ -949,6 +1244,26 @@ export function QuoteEditor({ quote, open, onOpenChange, onSaved }: QuoteEditorP
             </Form>
           </div>
         </motion.div>
+      {generatePreviewQuote() && (
+        <QuotePDFPreview
+          quote={generatePreviewQuote()!.quote}
+          client={generatePreviewQuote()!.client}
+          settings={generatePreviewQuote()!.settings}
+          isOpen={pdfPreviewOpen}
+          onOpenChange={setPdfPreviewOpen}
+        />
+      )}
+      </>
+  )
+
+  if (isPageMode) {
+    return content
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="w-[95vw] max-w-none h-[95vh] max-h-[95vh] overflow-hidden p-0 gap-0">
+        {content}
       </DialogContent>
     </Dialog>
   )
