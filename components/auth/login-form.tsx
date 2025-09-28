@@ -24,7 +24,7 @@ import { useAuth } from "@/lib/auth"
 
 export function LoginForm() {
   const router = useRouter()
-  const { login: setSessionToken } = useAuth()
+  const { login } = useAuth()
 
   const form = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
@@ -40,36 +40,19 @@ export function LoginForm() {
 
   async function onSubmit(values: LoginFormValues) {
     try {
-      const res = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(values),
-      })
-
-      const data = await res.json()
-
-      if (!res.ok) {
-        const message = data?.error ?? "Invalid credentials"
+      const result = await login(values.email, values.password, values.remember)
+      
+      if (!result.success) {
+        const message = result.error ?? "Invalid credentials"
         // Show server error inline and via toast
         try {
           // Prefer setting the password field, or email as a generic surface
-          form.setError("password" as any, { message })
+          form.setError("password", { message })
         } catch {
           // fallback if types complain in strict mode
         }
         toast.error(message)
         return
-      }
-
-      // Demo: store a visible token for middleware checks (NOT secure)
-      const demoToken = "mock-session-token"
-      setSessionToken(demoToken, values.remember)
-      try {
-        window.sessionStorage.setItem("demo_email", values.email)
-      } catch {
-        // ignore
       }
 
       toast.success("Signed in successfully")

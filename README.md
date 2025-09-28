@@ -59,11 +59,48 @@ yarn install
 
 ### 3. Environment Setup
 
-The application uses Supabase for data storage and authentication. The Supabase configuration is already set up in `lib/supabase.ts`. For production use, you should:
+The application uses Supabase for data storage and authentication.
 
-1. Create your own Supabase project
-2. Update the Supabase URL and anon key in `lib/supabase.ts`
-3. Set up the required database tables (see Database Schema section)
+#### Option 1: Local Development with Supabase CLI (Recommended)
+
+1. **Install Supabase CLI**:
+   ```bash
+   npm install -g supabase
+   ```
+
+2. **Start local Supabase**:
+   ```bash
+   npx supabase start
+   ```
+
+3. **Get your local credentials**:
+   ```bash
+   npx supabase status
+   ```
+   This will show your local Supabase URL and anon key.
+
+4. **Update `.env.local`**:
+   ```env
+   NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:54321
+   NEXT_PUBLIC_SUPABASE_ANON_KEY=your-local-anon-key
+   ```
+
+5. **Run the database setup**:
+   ```bash
+   npx supabase db reset
+   ```
+   Then execute the SQL in `database-setup.sql` in your Supabase dashboard.
+
+#### Option 2: Remote Supabase Project
+
+1. **Create a Supabase project** at [supabase.com](https://supabase.com)
+2. **Get your project credentials** from the project settings
+3. **Update `.env.local`**:
+   ```env
+   NEXT_PUBLIC_SUPABASE_URL=https://your-project-ref.supabase.co
+   NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
+   ```
+4. **Run the database setup SQL** from `database-setup.sql` in your Supabase SQL editor
 
 ### 4. Run the Development Server
 
@@ -209,6 +246,29 @@ The project includes:
 - **ESLint**: Configured for Next.js with TypeScript support
 - **TypeScript**: Strict type checking enabled
 - **Prettier**: Code formatting (via ESLint integration)
+
+### Troubleshooting
+
+#### Supabase Connection Issues
+
+If you see errors like "fetchCompanySettings error: {}" or "NetworkError when attempting to fetch resource":
+
+1. **Check your `.env.local` file** - Ensure it exists and contains valid Supabase credentials
+2. **Verify Supabase is running** (for local development):
+   ```bash
+   npx supabase status
+   ```
+3. **Check database tables** - Ensure you've run the SQL from `database-setup.sql`
+4. **Verify credentials** - Make sure your Supabase URL and anon key are correct
+5. **Check network connectivity** - Ensure you can access your Supabase instance
+
+#### Database Setup Issues
+
+If the database tables don't exist:
+
+1. **For local Supabase**: Run `npx supabase db reset` then execute the SQL
+2. **For remote Supabase**: Copy the contents of `database-setup.sql` and run it in your Supabase SQL editor
+3. **Verify table creation**: Check that all required tables (company_settings, clients, quotes, etc.) exist
 
 ## 🚀 Deployment
 

@@ -41,8 +41,8 @@ export async function GET(
       .select(`
         *,
         client:clients(*),
-        company:companies(*),
-        user:users(*),
+        company_settings(*),
+        created_by_user:users(*),
         invoice_items(
           *,
           item:items(*)
@@ -59,7 +59,7 @@ export async function GET(
     }
 
     // Check if user has permission to access this invoice
-    if (invoice.user_id !== user.id) {
+    if (invoice.created_by_user_id !== user.id) {
       return NextResponse.json(
         { error: 'Access denied' },
         { status: 403 }
@@ -87,7 +87,7 @@ export async function GET(
 }
 
 function generateInvoiceHTML(invoice: any): string {
-  const company = invoice.company
+  const company = invoice.company_settings
   const client = invoice.client
   const items = invoice.invoice_items
 
@@ -115,11 +115,10 @@ function generateInvoiceHTML(invoice: any): string {
           <p style="margin: 5px 0 0 0; font-size: 14px; color: #666;">#${invoice.invoice_number}</p>
         </div>
         <div style="text-align: right;">
-          <h2 style="margin: 0; font-size: 20px; font-weight: bold;">${company.name}</h2>
-          <p style="margin: 5px 0; font-size: 12px;">${company.address || ''}</p>
-          <p style="margin: 5px 0; font-size: 12px;">${company.city || ''}, ${company.state || ''} ${company.zip_code || ''}</p>
-          <p style="margin: 5px 0; font-size: 12px;">${company.email || ''}</p>
-          <p style="margin: 5px 0; font-size: 12px;">${company.phone || ''}</p>
+          <h2 style="margin: 0; font-size: 20px; font-weight: bold;">${company.company_name}</h2>
+          <p style="margin: 5px 0; font-size: 12px;">${company.address}</p>
+          <p style="margin: 5px 0; font-size: 12px;">${company.email}</p>
+          <p style="margin: 5px 0; font-size: 12px;">${company.phone}</p>
         </div>
       </div>
 
@@ -127,16 +126,15 @@ function generateInvoiceHTML(invoice: any): string {
       <div style="margin-bottom: 30px;">
         <h3 style="margin: 0 0 10px 0; font-size: 16px; font-weight: bold; color: #374151;">Bill To:</h3>
         <p style="margin: 5px 0; font-size: 14px; font-weight: bold;">${client.name}</p>
-        <p style="margin: 5px 0; font-size: 12px;">${client.address || ''}</p>
-        <p style="margin: 5px 0; font-size: 12px;">${client.city || ''}, ${client.state || ''} ${client.zip_code || ''}</p>
-        <p style="margin: 5px 0; font-size: 12px;">${client.email || ''}</p>
-        <p style="margin: 5px 0; font-size: 12px;">${client.phone || ''}</p>
+        <p style="margin: 5px 0; font-size: 12px;">${client.company}</p>
+        <p style="margin: 5px 0; font-size: 12px;">${client.email}</p>
+        <p style="margin: 5px 0; font-size: 12px;">${client.phone}</p>
       </div>
 
       <!-- Invoice Details -->
       <div style="display: flex; justify-content: space-between; margin-bottom: 30px;">
         <div>
-          <p style="margin: 5px 0; font-size: 12px;"><strong>Issue Date:</strong> ${formatDate(invoice.issue_date)}</p>
+          <p style="margin: 5px 0; font-size: 12px;"><strong>Issue Date:</strong> ${formatDate(invoice.date_issued)}</p>
           <p style="margin: 5px 0; font-size: 12px;"><strong>Due Date:</strong> ${formatDate(invoice.due_date)}</p>
         </div>
         <div>
@@ -159,8 +157,8 @@ function generateInvoiceHTML(invoice: any): string {
           ${items.map((item: any) => `
             <tr>
               <td style="padding: 12px; text-align: left; border-bottom: 1px solid #e5e7eb; font-size: 12px;">
-                ${item.item.name}
-                ${item.item.description ? `<br><span style="color: #666; font-size: 10px;">${item.item.description}</span>` : ''}
+                ${item.item.description}
+                ${item.item.unit ? `<span style="color: #666; font-size: 10px;"> (${item.item.unit})</span>` : ''}
               </td>
               <td style="padding: 12px; text-align: center; border-bottom: 1px solid #e5e7eb; font-size: 12px;">${item.quantity}</td>
               <td style="padding: 12px; text-align: right; border-bottom: 1px solid #e5e7eb; font-size: 12px;">${formatCurrency(item.unit_price)}</td>
@@ -175,44 +173,46 @@ function generateInvoiceHTML(invoice: any): string {
         <div style="width: 300px;">
           <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
             <span style="font-size: 14px;">Subtotal:</span>
-            <span style="font-size: 14px;">${formatCurrency(invoice.subtotal)}</span>
+            <span style="font-size: 14px;">${formatCurrency(invoice.subtotal_excl_vat)}</span>
           </div>
-          ${invoice.tax_amount > 0 ? `
+          ${invoice.vat_amount > 0 ? `
             <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
-              <span style="font-size: 14px;">Tax:</span>
-              <span style="font-size: 14px;">${formatCurrency(invoice.tax_amount)}</span>
-            </div>
-          ` : ''}
-          ${invoice.discount_amount > 0 ? `
-            <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
-              <span style="font-size: 14px;">Discount:</span>
-              <span style="font-size: 14px;">-${formatCurrency(invoice.discount_amount)}</span>
+              <span style="font-size: 14px;">VAT (${company.vat_percentage || 15}%):</span>
+              <span style="font-size: 14px;">${formatCurrency(invoice.vat_amount)}</span>
             </div>
           ` : ''}
           ${invoice.deposit_amount > 0 ? `
             <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
-              <span style="font-size: 14px;">Deposit (${invoice.deposit_percentage}%):</span>
+              <span style="font-size: 14px;">Deposit:</span>
               <span style="font-size: 14px;">-${formatCurrency(invoice.deposit_amount)}</span>
             </div>
           ` : ''}
           <div style="display: flex; justify-content: space-between; margin-top: 15px; padding-top: 15px; border-top: 2px solid #374151;">
             <span style="font-size: 16px; font-weight: bold;">Total:</span>
-            <span style="font-size: 16px; font-weight: bold;">${formatCurrency(invoice.total_amount)}</span>
+            <span style="font-size: 16px; font-weight: bold;">${formatCurrency(invoice.total_incl_vat)}</span>
           </div>
+          ${invoice.balance_remaining !== invoice.total_incl_vat ? `
+            <div style="display: flex; justify-content: space-between; margin-top: 5px;">
+              <span style="font-size: 12px; color: #666;">Balance Remaining:</span>
+              <span style="font-size: 12px; color: #666;">${formatCurrency(invoice.balance_remaining)}</span>
+            </div>
+          ` : ''}
         </div>
       </div>
 
       <!-- Terms and Notes -->
-      ${invoice.terms ? `
+      ${company.terms_text ? `
         <div style="margin-bottom: 20px;">
           <h4 style="margin: 0 0 10px 0; font-size: 14px; font-weight: bold; color: #374151;">Terms & Conditions</h4>
-          <p style="margin: 0; font-size: 12px; line-height: 1.5; color: #666;">${invoice.terms}</p>
+          <p style="margin: 0; font-size: 12px; line-height: 1.5; color: #666;">${company.terms_text}</p>
         </div>
       ` : ''}
-      ${invoice.notes ? `
+      ${invoice.payment_instructions ? `
         <div style="margin-bottom: 20px;">
-          <h4 style="margin: 0 0 10px 0; font-size: 14px; font-weight: bold; color: #374151;">Notes</h4>
-          <p style="margin: 0; font-size: 12px; line-height: 1.5; color: #666;">${invoice.notes}</p>
+          <h4 style="margin: 0 0 10px 0; font-size: 14px; font-weight: bold; color: #374151;">Payment Instructions</h4>
+          <p style="margin: 0; font-size: 12px; line-height: 1.5; color: #666;">${invoice.payment_instructions.bank ? 'Bank: ' + invoice.payment_instructions.bank : ''}</p>
+          <p style="margin: 0; font-size: 12px; line-height: 1.5; color: #666;">${invoice.payment_instructions.accountName ? 'Account Name: ' + invoice.payment_instructions.accountName : ''}</p>
+          <p style="margin: 0; font-size: 12px; line-height: 1.5; color: #666;">${invoice.payment_instructions.accountNumber ? 'Account Number: ' + invoice.payment_instructions.accountNumber : ''}</p>
         </div>
       ` : ''}
 

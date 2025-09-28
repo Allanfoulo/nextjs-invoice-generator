@@ -1,37 +1,12 @@
 "use client"
 
-import { useState, useRef, lazy, Suspense } from "react"
-
-// Dynamically import react-pdf components to avoid SSR issues
-const Document = lazy(() => import("react-pdf").then(mod => ({ default: mod.Document })))
-const Page = lazy(() => import("react-pdf").then(mod => ({ default: mod.Page })))
-
-// We need to set up the worker on the client side only
-let pdfjs: { GlobalWorkerOptions: { workerSrc: string } } | null = null
-let pdfjsLoaded = false
-
-const loadPdfJs = async () => {
-  if (typeof window === "undefined" || pdfjsLoaded) return
-
-  try {
-    const mod = await import("react-pdf")
-    pdfjs = mod.pdfjs
-    pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${mod.pdfjs.version}/legacy/build/pdf.worker.min.mjs`
-    pdfjsLoaded = true
-  } catch (error) {
-    console.error("Failed to load PDF.js:", error)
-  }
-}
+import { useState, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import {
-  ZoomIn,
-  ZoomOut,
-  RotateCcw,
-  RotateCw,
   Download,
   Eye,
   Loader2,
@@ -41,6 +16,7 @@ import jsPDF from "jspdf"
 import html2canvas from "html2canvas"
 import { cn } from "@/lib/utils"
 import type { Quote, Client, CompanySettings } from "@/lib/invoice-types"
+import { QuoteStatus } from "@/lib/invoice-types"
 
 interface QuotePDFPreviewProps {
   quote: Quote
@@ -53,7 +29,7 @@ interface QuotePDFPreviewProps {
 
 function QuotePDFContent({ quote, client, settings }: { quote: Quote; client: Client; settings: CompanySettings }) {
   return (
-    <div id="quote-pdf-content" className="bg-white p-8 max-w-4xl mx-auto">
+    <div id="quote-pdf-content" className="bg-white p-8 max-w-4xl mx-auto shadow-sm">
       {/* Header */}
       <div className="flex justify-between items-start mb-8">
         <div>
@@ -180,11 +156,11 @@ function QuotePDFContent({ quote, client, settings }: { quote: Quote; client: Cl
       <div className="text-center">
         <span className={cn(
           "inline-flex items-center px-3 py-1 rounded-full text-sm font-medium",
-          quote.status === "draft" && "bg-gray-100 text-gray-800",
-          quote.status === "sent" && "bg-blue-100 text-blue-800",
-          quote.status === "accepted" && "bg-green-100 text-green-800",
-          quote.status === "declined" && "bg-red-100 text-red-800",
-          quote.status === "expired" && "bg-yellow-100 text-yellow-800"
+          quote.status === "draft" && "bg-gray-200 text-gray-900",
+          quote.status === "sent" && "bg-blue-200 text-blue-900",
+          quote.status === "accepted" && "bg-green-200 text-green-900",
+          quote.status === "declined" && "bg-red-200 text-red-900",
+          quote.status === "expired" && "bg-yellow-200 text-yellow-900"
         )}>
           Status: {quote.status.replace("_", " ").toUpperCase()}
         </span>
@@ -200,13 +176,10 @@ export function QuotePDFPreview({
   isOpen,
   onOpenChange
 }: QuotePDFPreviewProps) {
-  const [pdfUrl, setPdfUrl] = useState<string | null>(null)
-  const [zoom, setZoom] = useState(1)
-  const [rotation, setRotation] = useState(0)
   const [isGenerating, setIsGenerating] = useState(false)
   const contentRef = useRef<HTMLDivElement>(null)
 
-  const generatePDF = async () => {
+  const generateAndDownloadPDF = async () => {
     if (!contentRef.current) return
 
     setIsGenerating(true)
@@ -214,7 +187,9 @@ export function QuotePDFPreview({
       const canvas = await html2canvas(contentRef.current, {
         scale: 2,
         useCORS: true,
-        backgroundColor: "#ffffff"
+        backgroundColor: "#ffffff",
+        logging: false,
+        allowTaint: false
       })
 
       const imgData = canvas.toDataURL("image/png")
@@ -239,9 +214,18 @@ export function QuotePDFPreview({
         heightLeft -= pageHeight
       }
 
+      // Direct download
       const pdfBlob = pdf.output("blob")
       const url = URL.createObjectURL(pdfBlob)
-      setPdfUrl(url)
+
+      const link = document.createElement("a")
+      link.href = url
+      link.download = `quote-${quote.quoteNumber}.pdf`
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+
+      URL.revokeObjectURL(url)
     } catch (error) {
       console.error("Error generating PDF:", error)
     } finally {
@@ -249,152 +233,43 @@ export function QuotePDFPreview({
     }
   }
 
-  const downloadPDF = () => {
-    if (!pdfUrl) return
-
-    const link = document.createElement("a")
-    link.href = pdfUrl
-    link.download = `quote-${quote.quoteNumber}.pdf`
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-  }
-
-  // Generate PDF when dialog opens
   const handleOpenChange = (open: boolean) => {
-    if (open) {
-      // Pre-load PDF.js when opening the dialog
-      loadPdfJs()
-      generatePDF()
-    } else {
-      // Clean up URL object when closing
-      if (pdfUrl) {
-        URL.revokeObjectURL(pdfUrl)
-        setPdfUrl(null)
-      }
-    }
     onOpenChange(open)
   }
 
   return (
     <Dialog open={isOpen} onOpenChange={handleOpenChange}>
-      <DialogContent className="max-w-6xl max-h-[90vh] p-0">
-        <div className="hidden">
-          <QuotePDFContent quote={quote} client={client} settings={settings} ref={contentRef} />
-        </div>
-
-        <DialogHeader className="p-6 pb-0">
+      <DialogContent className="max-w-5xl max-h-[90vh] p-0 flex flex-col">
+        <DialogHeader className="p-6 pb-0 flex-shrink-0">
           <div className="flex items-center justify-between">
             <DialogTitle className="flex items-center gap-2">
               <FileText className="h-5 w-5" />
               Quote Preview - {quote.quoteNumber}
             </DialogTitle>
-            <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setRotation(rotation - 90)}
-                disabled={!pdfUrl}
-              >
-                <RotateCcw className="h-4 w-4" />
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setRotation(rotation + 90)}
-                disabled={!pdfUrl}
-              >
-                <RotateCw className="h-4 w-4" />
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setZoom(Math.max(0.5, zoom - 0.25))}
-                disabled={!pdfUrl || zoom <= 0.5}
-              >
-                <ZoomOut className="h-4 w-4" />
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setZoom(Math.min(2, zoom + 0.25))}
-                disabled={!pdfUrl || zoom >= 2}
-              >
-                <ZoomIn className="h-4 w-4" />
-              </Button>
-              <Button
-                size="sm"
-                onClick={downloadPDF}
-                disabled={!pdfUrl || isGenerating}
-              >
-                {isGenerating ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Download className="h-4 w-4" />
-                )}
-                Download
-              </Button>
-            </div>
+            <Button
+              size="sm"
+              onClick={generateAndDownloadPDF}
+              disabled={isGenerating}
+            >
+              {isGenerating ? (
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              ) : (
+                <Download className="h-4 w-4 mr-2" />
+              )}
+              Download PDF
+            </Button>
           </div>
         </DialogHeader>
 
-        <div className="flex-1 p-6">
-          {isGenerating ? (
-            <Card className="h-[600px] flex items-center justify-center">
-              <div className="text-center">
-                <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4" />
-                <p className="text-sm text-muted-foreground">Generating PDF preview...</p>
+        <div className="flex-1 p-6 overflow-hidden">
+          <ScrollArea className="h-full w-full">
+            <div className="flex justify-center p-4">
+              <div className="bg-white rounded-lg shadow-lg">
+                <QuotePDFContent quote={quote} client={client} settings={settings} />
               </div>
-            </Card>
-          ) : pdfUrl ? (
-            <ScrollArea className="h-[600px] w-full">
-              <div className="flex justify-center">
-                <Suspense fallback={
-                  <div className="flex items-center justify-center h-32">
-                    <Loader2 className="h-6 w-6 animate-spin" />
-                  </div>
-                }>
-                  {pdfjsLoaded ? (
-                    <Document
-                      file={pdfUrl}
-                      loading={
-                        <div className="flex items-center justify-center h-32">
-                          <Loader2 className="h-6 w-6 animate-spin" />
-                        </div>
-                      }
-                    >
-                      <Page
-                        pageNumber={1}
-                        scale={zoom}
-                        rotate={rotation}
-                        className="shadow-lg"
-                        renderTextLayer={false}
-                        renderAnnotationLayer={false}
-                      />
-                    </Document>
-                  ) : (
-                    <div className="flex items-center justify-center h-32">
-                      <Loader2 className="h-6 w-6 animate-spin" />
-                    </div>
-                  )}
-                </Suspense>
-              </div>
-              <ScrollBar orientation="horizontal" />
-            </ScrollArea>
-          ) : (
-            <Card className="h-[600px] flex items-center justify-center">
-              <div className="text-center">
-                <Eye className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                <p className="text-lg font-medium mb-2">PDF Preview</p>
-                <p className="text-sm text-muted-foreground">
-                  Click Generate PDF to create a preview of your quote
-                </p>
-                <Button onClick={generatePDF} className="mt-4">
-                  Generate PDF
-                </Button>
-              </div>
-            </Card>
-          )}
+            </div>
+            <ScrollBar orientation="horizontal" />
+          </ScrollArea>
         </div>
       </DialogContent>
     </Dialog>

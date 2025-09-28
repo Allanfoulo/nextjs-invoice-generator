@@ -7,7 +7,7 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
 import { toast } from "sonner"
 import { motion, AnimatePresence } from "framer-motion"
-import { Plus, Trash2, Eye, Save, Package, Calculator, AlertCircle, FileText } from "lucide-react"
+import { Plus, Trash2, Eye, Save, Package, Calculator, AlertCircle, FileText, Receipt } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -26,6 +26,7 @@ import { QuoteStatus, ItemType } from "@/lib/invoice-types"
 import { fetchClients, fetchCompanySettings, formatCurrency, fetchPackages } from "@/lib/mappers"
 import { supabase } from "@/lib/supabase"
 import { QuotePDFPreview } from "@/components/ui/quote-pdf-preview"
+import { getToken } from "@/lib/auth"
 
 
 const quoteSchema = z.object({
@@ -65,6 +66,7 @@ export function QuoteEditor({ quote, open = true, onOpenChange, onSaved, onCance
   const [selectedPackage, setSelectedPackage] = useState<string>("")
   const [isCalculating, setIsCalculating] = useState(false)
   const [pdfPreviewOpen, setPdfPreviewOpen] = useState(false)
+  const [isConverting, setIsConverting] = useState(false)
 
   const form = useForm<QuoteFormValues>({
     resolver: zodResolver(quoteSchema),
@@ -72,7 +74,7 @@ export function QuoteEditor({ quote, open = true, onOpenChange, onSaved, onCance
       clientId: quote?.clientId || "",
       dateIssued: quote?.dateIssued ? new Date(quote.dateIssued).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
       validUntil: quote?.validUntil ? new Date(quote.validUntil).toISOString().split('T')[0] : "",
-      status: quote?.status || QuoteStatus.Draft,
+      status: (quote?.status || QuoteStatus.Draft).toLowerCase() as QuoteStatus,
       depositPercentage: quote?.depositPercentage || 40,
       notes: quote?.notes || "",
       termsText: quote?.termsText || "",
@@ -91,7 +93,7 @@ export function QuoteEditor({ quote, open = true, onOpenChange, onSaved, onCance
         clientId: quote.clientId,
         dateIssued: new Date(quote.dateIssued).toISOString().split('T')[0],
         validUntil: new Date(quote.validUntil).toISOString().split('T')[0],
-        status: quote.status,
+        status: quote.status.toLowerCase() as QuoteStatus,
         depositPercentage: quote.depositPercentage,
         notes: quote.notes,
         termsText: quote.termsText,
@@ -102,7 +104,7 @@ export function QuoteEditor({ quote, open = true, onOpenChange, onSaved, onCance
         clientId: "",
         dateIssued: new Date().toISOString().split('T')[0],
         validUntil: "",
-        status: QuoteStatus.Draft,
+        status: QuoteStatus.Draft.toLowerCase() as QuoteStatus,
         depositPercentage: 40,
         notes: "",
         termsText: "",
@@ -126,6 +128,53 @@ export function QuoteEditor({ quote, open = true, onOpenChange, onSaved, onCance
       toast.error("Failed to load data")
     }
   }, [])
+
+  const convertQuoteToInvoice = async () => {
+    if (!quote) {
+      toast.error("Quote must be saved before converting to invoice")
+      return
+    }
+
+    setIsConverting(true)
+    try {
+      const token = getToken()
+      if (!token) {
+        toast.error("Authentication required")
+        return
+      }
+
+      const response = await fetch(`/api/quotes/${quote.id}/convert-to-invoice`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Failed to convert quote to invoice')
+      }
+
+      const result = await response.json()
+
+      if (result.success) {
+        toast.success(`Invoice #${result.invoice.invoice_number} created successfully!`)
+
+        // Optional: Navigate to the invoice page
+        if (typeof window !== 'undefined') {
+          window.open(`/invoices/${result.invoice.id}`, '_blank')
+        }
+      } else {
+        toast.error(result.message || 'Failed to create invoice')
+      }
+    } catch (error) {
+      console.error('Error converting quote to invoice:', error)
+      toast.error(error instanceof Error ? error.message : 'Failed to convert quote to invoice')
+    } finally {
+      setIsConverting(false)
+    }
+  }
 
   const calculateTotals = useCallback((currentItems: Item[]) => {
     console.log('calculateTotals called with items:', currentItems.length)
@@ -256,13 +305,22 @@ export function QuoteEditor({ quote, open = true, onOpenChange, onSaved, onCance
 
       if (quote) {
         // Update existing quote
-        const { error } = await supabase
-          .from("quotes")
-          .update({
+        console.log("=== DEBUG: Starting quote update process ===")
+        console.log("Quote ID:", quote.id)
+        console.log("Items to update:", items.length)
+
+        // Update the quote first
+        const statusToSend = values.status.toLowerCase()
+        console.log("=== DEBUG: Status transformation ===")
+        console.log("Original status:", values.status)
+        console.log("Transformed status:", statusToSend)
+        console.log("Status type:", typeof statusToSend)
+
+        const updateData = {
             client_id: values.clientId,
             date_issued: values.dateIssued,
             valid_until: values.validUntil,
-            status: values.status,
+            status: statusToSend,
             deposit_percentage: values.depositPercentage,
             notes: values.notes,
             terms_text: values.termsText,
@@ -271,18 +329,112 @@ export function QuoteEditor({ quote, open = true, onOpenChange, onSaved, onCance
             total_incl_vat: totals.totalInclVat,
             deposit_amount: totals.depositAmount,
             balance_remaining: totals.balanceRemaining,
-          })
+          }
+
+        console.log("=== DEBUG: Complete update data ===")
+        console.log("Update data:", JSON.stringify(updateData, null, 2))
+
+        const { error: updateError } = await supabase
+          .from("quotes")
+          .update(updateData)
           .eq("id", quote.id)
 
-        if (error) throw error
+        if (updateError) {
+          console.error("Quote update error:", updateError)
+          throw updateError
+        }
+
+        // Handle items update - need to manage the junction table
+        console.log("=== DEBUG: Handling items update ===")
+
+        // Get existing quote items
+        const { data: existingQuoteItems, error: fetchError } = await supabase
+          .from("quote_items")
+          .select("item_id")
+          .eq("quote_id", quote.id)
+
+        if (fetchError) {
+          console.error("Failed to fetch existing quote items:", fetchError)
+          throw fetchError
+        }
+
+        console.log("Existing quote items:", existingQuoteItems?.length || 0)
+
+        // Delete existing quote-item relationships
+        const { error: deleteError } = await supabase
+          .from("quote_items")
+          .delete()
+          .eq("quote_id", quote.id)
+
+        if (deleteError) {
+          console.error("Failed to delete existing quote items:", deleteError)
+          throw deleteError
+        }
+
+        console.log("Deleted existing quote-item relationships")
+
+        // Process items
+        if (items.length > 0) {
+          const itemsToInsert = items.map(item => ({
+            description: item.description || "Untitled Item",
+            unit_price: item.unitPrice || 0,
+            qty: item.qty || 1,
+            taxable: item.taxable !== false,
+            item_type: item.itemType || "Fixed",
+            unit: item.unit || "each",
+          }))
+
+          console.log("Inserting items:", itemsToInsert.length)
+
+          // Insert new items
+          const { data: insertedItems, error: itemsError } = await supabase
+            .from("items")
+            .insert(itemsToInsert)
+            .select()
+
+          if (itemsError) {
+            console.error("Items insert error:", itemsError)
+            throw itemsError
+          }
+
+          if (!insertedItems || insertedItems.length === 0) {
+            throw new Error("No items were inserted")
+          }
+
+          console.log("Items inserted:", insertedItems.length)
+
+          // Create new quote-item relationships
+          const quoteItemInserts = insertedItems.map(item => ({
+            quote_id: quote.id,
+            item_id: item.id,
+          }))
+
+          const { error: quoteItemsError } = await supabase
+            .from("quote_items")
+            .insert(quoteItemInserts)
+
+          if (quoteItemsError) {
+            console.error("Quote items insert error:", quoteItemsError)
+            throw quoteItemsError
+          }
+
+          console.log("Created new quote-item relationships")
+        }
 
         const updatedQuote: Quote = {
           ...quote,
-          ...values,
-          items,
+          clientId: values.clientId,
+          dateIssued: values.dateIssued,
+          validUntil: values.validUntil,
+          status: values.status,
+          depositPercentage: values.depositPercentage,
+          notes: values.notes,
+          termsText: values.termsText,
+          items: items,
           ...totals,
         }
 
+        console.log("=== DEBUG: Quote update completed successfully ===")
         onSaved(updatedQuote)
         toast.success("Quote updated successfully")
       } else {
@@ -293,12 +445,17 @@ export function QuoteEditor({ quote, open = true, onOpenChange, onSaved, onCance
           .replace('{YYYY}', currentYear)
           .replace('{seq:04d}', settings.nextQuoteNumber.toString().padStart(4, '0'))
 
+        const statusToSend = values.status.toLowerCase()
+        console.log("=== DEBUG: Status transformation (create) ===")
+        console.log("Original status:", values.status)
+        console.log("Transformed status:", statusToSend)
+
         const quoteInsertData = {
           quote_number: nextQuoteNumber,
           client_id: values.clientId,
           date_issued: values.dateIssued,
           valid_until: values.validUntil,
-          status: values.status,
+          status: statusToSend,
           deposit_percentage: values.depositPercentage,
           notes: values.notes || null,
           terms_text: values.termsText || null,
@@ -442,7 +599,7 @@ export function QuoteEditor({ quote, open = true, onOpenChange, onSaved, onCance
               // Update next quote number in settings to skip the conflicting number
               try {
                 const { error: updateError } = await supabase
-                  .from("settings")
+                  .from("company_settings")
                   .update({
                     next_quote_number: settings.nextQuoteNumber + 1
                   })
@@ -454,7 +611,7 @@ export function QuoteEditor({ quote, open = true, onOpenChange, onSaved, onCance
                   console.log("Updated next quote number to:", settings.nextQuoteNumber + 1)
                   // Refresh settings to get the updated quote number
                   const { data: updatedSettings } = await supabase
-                    .from("settings")
+                    .from("company_settings")
                     .select("*")
                     .single()
 
@@ -560,7 +717,7 @@ export function QuoteEditor({ quote, open = true, onOpenChange, onSaved, onCance
         // Update the next quote number in settings
         try {
           const { error: updateSettingsError } = await supabase
-            .from("settings")
+            .from("company_settings")
             .update({
               next_quote_number: settings.nextQuoteNumber + 1
             })
@@ -573,7 +730,7 @@ export function QuoteEditor({ quote, open = true, onOpenChange, onSaved, onCance
             console.log("Updated next quote number to:", settings.nextQuoteNumber + 1)
             // Refresh settings to get the updated next quote number
             const { data: updatedSettings } = await supabase
-              .from("settings")
+              .from("company_settings")
               .select("*")
               .single()
 
@@ -598,16 +755,26 @@ export function QuoteEditor({ quote, open = true, onOpenChange, onSaved, onCance
       }
     } catch (error: unknown) {
       console.error("Failed to save quote:", error)
+      console.error("Error type:", typeof error)
+      console.error("Error constructor:", error?.constructor?.name)
+
       let errorMessage = 'Unknown error occurred'
 
       if (error instanceof Error) {
         errorMessage = error.message
+        console.error("Error message:", error.message)
+        console.error("Error stack:", error.stack)
       } else if (typeof error === 'object' && error !== null) {
         try {
-          errorMessage = JSON.stringify(error)
+          errorMessage = JSON.stringify(error, null, 2)
+          console.error("Error object:", errorMessage)
         } catch {
           errorMessage = 'Complex error object'
+          console.error("Error object (stringify failed):", error)
         }
+      } else {
+        console.error("Error primitive:", error)
+        errorMessage = String(error)
       }
 
       toast.error(`Failed to save quote: ${errorMessage}`)
@@ -1222,6 +1389,26 @@ export function QuoteEditor({ quote, open = true, onOpenChange, onSaved, onCance
                     <FileText className="h-4 w-4 mr-2" />
                     Preview PDF
                   </Button>
+                  {quote && form.getValues().status === "accepted" && (
+                    <Button
+                      type="button"
+                      onClick={convertQuoteToInvoice}
+                      disabled={isConverting}
+                      className="flex-1 sm:flex-none focus:ring-2 focus:ring-primary/20 bg-green-600 hover:bg-green-700"
+                    >
+                      {isConverting ? (
+                        <>
+                          <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
+                          Converting...
+                        </>
+                      ) : (
+                        <>
+                          <Receipt className="h-4 w-4 mr-2" />
+                          Convert to Invoice
+                        </>
+                      )}
+                    </Button>
+                  )}
                   <Button
                     type="submit"
                     disabled={loading || items.length === 0}

@@ -1,1 +1,1 @@
-export const TOKEN_COOKIE = "demo_token"
+export const TOKEN_COOKIE = "supabase_auth_token"

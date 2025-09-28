@@ -6,21 +6,21 @@ import { AppSidebar } from "@/components/layout/app-sidebar"
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   return (
-    <div className="grid min-h-screen grid-rows-[auto,1fr] md:grid-cols-[16rem,1fr]">
-      {/* Header spans full width */}
-      <div className="md:col-span-2 md:row-start-1">
-        <AppHeader />
+    <div className="flex min-h-screen flex-col">
+      {/* Header - spans full width */}
+      <AppHeader />
+
+      <div className="flex flex-1">
+        {/* Desktop sidebar */}
+        <aside className="hidden w-64 shrink-0 border-r bg-background md:block md:sticky md:top-0 md:h-screen md:self-start">
+          <AppSidebar />
+        </aside>
+
+        {/* Main content */}
+        <main id="main-content" className="flex-1 p-4 md:p-6">
+          {children}
+        </main>
       </div>
-
-      {/* Desktop persistent sidebar */}
-      <aside className="w-64 shrink-0 border-r bg-background">
-        <AppSidebar />
-      </aside>
-
-      {/* Main content */}
-      <main id="main-content" className="p-4 md:p-6 md:col-start-2 md:row-start-2">
-        {children}
-      </main>
     </div>
   )
 }

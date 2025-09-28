@@ -37,8 +37,8 @@ export function AppHeader() {
   const { logout } = useAuth()
   const [open, setOpen] = React.useState(false)
 
-  function handleLogout() {
-    logout()
+  async function handleLogout() {
+    await logout()
     toast.success("Signed out")
     router.replace("/login")
   }
@@ -106,7 +106,7 @@ export function AppHeader() {
               <DropdownMenuLabel>My Account</DropdownMenuLabel>
               <DropdownMenuSeparator />
               <DropdownMenuItem asChild>
-                <Link href="/settings">Profile</Link>
+                <Link href="/profile">Profile</Link>
               </DropdownMenuItem>
               <DropdownMenuItem asChild>
                 <Link href="/settings">Settings</Link>

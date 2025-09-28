@@ -10,7 +10,6 @@ import { Plus, Search, Trash2, Pencil } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -92,9 +91,10 @@ export default function ClientsPage() {
       if (error) throw error
       setClients((prev) => prev.filter((c) => c.id !== id))
       toast.success("Client deleted")
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error(e)
-      toast.error("Failed to delete client")
+      const errorMessage = e instanceof Error ? e.message : 'Unknown error occurred'
+      toast.error(`Failed to delete client: ${errorMessage}`)
     }
   }
 
@@ -314,9 +314,10 @@ function ClientDialog({
         onSaved(updated, "update")
         onOpenChange(false)
       }
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error(e)
-      toast.error("Failed to save client")
+      const errorMessage = e instanceof Error ? e.message : 'Unknown error occurred'
+      toast.error(`Failed to save client: ${errorMessage}`)
     }
   }
 

@@ -6,7 +6,7 @@ import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
 import { Separator } from "@/components/ui/separator"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { LayoutDashboard, FileText, Receipt, Users, Settings as SettingsIcon } from "lucide-react"
+import { LayoutDashboard, FileText, Receipt, Users, Settings as SettingsIcon, User, Package } from "lucide-react"
 import { m } from "@/components/ui/motion"
 
 type NavItem = {
@@ -19,7 +19,9 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/quotes", label: "Quotes", icon: FileText },
   { href: "/invoices", label: "Invoices", icon: Receipt },
+  { href: "/packages", label: "Packages", icon: Package },
   { href: "/clients", label: "Clients", icon: Users },
+  { href: "/profile", label: "Profile", icon: User },
   { href: "/settings", label: "Settings", icon: SettingsIcon },
 ]
 

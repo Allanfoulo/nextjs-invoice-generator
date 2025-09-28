@@ -3,7 +3,6 @@
 import { m } from "@/components/ui/motion"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Table, TableBody, TableHead, TableHeader, TableRow, TableCell } from "@/components/ui/table"
 
 export default function Loading() {
   return (
@@ -27,29 +26,40 @@ export default function Loading() {
           </div>
 
           {/* Table skeleton */}
-          <div className="rounded-md border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  {[...Array(6)].map((_, i) => (
-                    <TableHead key={i}>
-                      <Skeleton className="h-3 w-20 shimmer" />
-                    </TableHead>
+          <div className="space-y-4">
+            {/* Desktop skeleton */}
+            <div className="hidden sm:block rounded-md border">
+              <div className="bg-muted/50 p-2">
+                <div className="grid grid-cols-7 gap-2">
+                  {[...Array(7)].map((_, i) => (
+                    <Skeleton key={i} className="h-3 w-20 shimmer" />
                   ))}
-                </TableRow>
-              </TableHeader>
-              <TableBody>
+                </div>
+              </div>
+              <div className="p-2 space-y-2">
                 {[...Array(6)].map((_, r) => (
-                  <TableRow key={r}>
-                    {[...Array(6)].map((_, c) => (
-                      <TableCell key={c}>
-                        <Skeleton className="h-3 w-24 shimmer" />
-                      </TableCell>
+                  <div key={r} className="grid grid-cols-7 gap-2">
+                    {[...Array(7)].map((_, c) => (
+                      <Skeleton key={c} className="h-3 w-24 shimmer" />
                     ))}
-                  </TableRow>
+                  </div>
                 ))}
-              </TableBody>
-            </Table>
+              </div>
+            </div>
+
+            {/* Mobile skeleton */}
+            <div className="sm:hidden space-y-4">
+              {[...Array(6)].map((_, r) => (
+                <div key={r} className="bg-muted/30 rounded-lg p-4 space-y-3">
+                  {[...Array(7)].map((_, c) => (
+                    <div key={c} className="flex justify-between">
+                      <Skeleton className="h-3 w-16 shimmer" />
+                      <Skeleton className="h-3 w-20 shimmer" />
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
           </div>
         </CardContent>
       </Card>

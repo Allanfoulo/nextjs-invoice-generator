@@ -69,7 +69,7 @@ export default function ProjectsPage() {
             </div>
             <div className="flex items-center gap-2">
               <label htmlFor="status-filter" className="sr-only">Status filter</label>
-              <Select value={status} onValueChange={(v) => setStatus(v as any)}>
+              <Select value={status} onValueChange={(v) => setStatus(v as "all" | Status)}>
                 <SelectTrigger id="status-filter" className="w-40">
                   <SelectValue placeholder="Filter status" />
                 </SelectTrigger>

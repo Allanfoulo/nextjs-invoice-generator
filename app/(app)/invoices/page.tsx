@@ -6,16 +6,18 @@ import { m } from "@/components/ui/motion"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Table, TableBody, TableCell, TableHead, TableHeader } from "@/components/ui/table"
+import { ResponsiveTable } from "@/components/ui/responsive-table"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
 import { toast } from "sonner"
-import { Search } from "lucide-react"
+import { Search, Download, Eye } from "lucide-react"
 import { AnimatePresence } from "framer-motion"
 import { InlineSpinner } from "@/components/ui/inline-spinner"
 import { fetchClients, fetchCompanySettings, fetchInvoices, formatCurrency, formatDateISO, humanizeStatus } from "@/lib/mappers"
+import { getToken } from "@/lib/auth"
 import type { Client, CompanySettings, Invoice } from "@/lib/invoice-types"
+import { InvoiceEditor } from "./_components/invoice-editor"
 
 export default function InvoicesPage() {
   const [loading, setLoading] = useState(true)
@@ -26,6 +28,8 @@ export default function InvoicesPage() {
   const [query, setQuery] = useState("")
   const [status, setStatus] = useState<"all" | Invoice["status"]>("all")
   const [isPending, startUiTransition] = useTransition()
+  const [editorOpen, setEditorOpen] = useState(false)
+  const [editingInvoice, setEditingInvoice] = useState<Invoice | null>(null)
 
   useEffect(() => {
     let mounted = true
@@ -34,11 +38,12 @@ export default function InvoicesPage() {
         setLoading(true)
         const [s, cs, is] = await Promise.all([fetchCompanySettings(), fetchClients(), fetchInvoices()])
         if (!mounted) return
+        console.log("Debug - fetched data:", { settings: s, clients: cs, invoices: is })
         setSettings(s)
         setClients(cs)
         setInvoices(is)
       } catch (e) {
-        console.error(e)
+        console.error("Error loading invoices:", e)
         toast.error("Failed to load invoices")
       } finally {
         setLoading(false)
@@ -72,6 +77,95 @@ export default function InvoicesPage() {
       case "draft":
       default:
         return "secondary" as const
+    }
+  }
+
+  const handleEditInvoice = (invoice: Invoice) => {
+    setEditingInvoice(invoice)
+    setEditorOpen(true)
+  }
+
+  const handleSaveInvoice = (invoice: Invoice) => {
+    setInvoices(prev => prev.map(i => i.id === invoice.id ? invoice : i))
+    setEditorOpen(false)
+    setEditingInvoice(null)
+  }
+
+  const handleDownloadPDF = async (invoice: Invoice) => {
+    try {
+      const token = getToken()
+      if (!token) {
+        toast.error("Authentication required")
+        return
+      }
+
+      // Dynamically import jsPDF and html2canvas for client-side use
+      const [{ default: jsPDF }, { default: html2canvas }] = await Promise.all([
+        import('jspdf'),
+        import('html2canvas')
+      ])
+
+      // Get HTML from API
+      const response = await fetch(`/api/invoices/${invoice.id}/pdf`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Failed to generate PDF')
+      }
+
+      const htmlContent = await response.text()
+
+      // Create a temporary div to render HTML
+      const tempDiv = document.createElement('div')
+      tempDiv.innerHTML = htmlContent
+      tempDiv.style.position = 'absolute'
+      tempDiv.style.left = '-9999px'
+      tempDiv.style.top = '-9999px'
+      tempDiv.style.width = '800px'
+      document.body.appendChild(tempDiv)
+
+      try {
+        // Convert HTML to canvas
+        const canvas = await html2canvas(tempDiv, {
+          scale: 2,
+          useCORS: true,
+          allowTaint: true,
+        })
+
+        // Create PDF
+        const pdf = new jsPDF('p', 'mm', 'a4')
+        const imgData = canvas.toDataURL('image/png')
+
+        const pdfWidth = pdf.internal.pageSize.getWidth()
+        const pdfHeight = (canvas.height * pdfWidth) / canvas.width
+
+        pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight)
+
+        // Download the PDF
+        const pdfBlob = pdf.output('blob')
+        const url = URL.createObjectURL(pdfBlob)
+
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `invoice-${invoice.invoiceNumber}.pdf`
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+
+        // Clean up
+        URL.revokeObjectURL(url)
+        toast.success('PDF downloaded successfully')
+      } finally {
+        // Clean up temp div
+        document.body.removeChild(tempDiv)
+      }
+    } catch (error) {
+      console.error('Error downloading PDF:', error)
+      toast.error('Failed to download PDF')
     }
   }
 
@@ -116,7 +210,7 @@ export default function InvoicesPage() {
                 value={status}
                 onValueChange={(v) =>
                   startUiTransition(() => {
-                    setStatus(v as any)
+                    setStatus(v as "all" | Invoice["status"])
                   })
                 }
               >
@@ -141,97 +235,60 @@ export default function InvoicesPage() {
 
           {/* Table */}
           <Suspense fallback={<div className="rounded-md border p-6 text-sm text-muted-foreground">Loading…</div>}>
-            <div className="rounded-md border">
-              <Table>
-                <TableHeader>
-                  <tr>
-                    <TableHead className="w-[140px]">Invoice #</TableHead>
-                    <TableHead>Client</TableHead>
-                    <TableHead>Date</TableHead>
-                    <TableHead>Due Date</TableHead>
-                    <TableHead className="text-right">Total</TableHead>
-                    <TableHead className="text-right">Status</TableHead>
-                  </tr>
-                </TableHeader>
-                <TableBody>
-                  {loading && (
-                    <tr>
-                      <TableCell colSpan={6} className="h-24 text-center text-sm text-muted-foreground">
-                        Loading…
-                      </TableCell>
-                    </tr>
-                  )}
-
-                  {!loading && filtered.length === 0 && (
-                    <AnimatePresence mode="wait">
-                      <m.tr
-                        key="empty"
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+            <ResponsiveTable
+              headers={["Invoice #", "Client", "Date", "Due Date", "Total", "Status", "Quote", "Actions"]}
+              data={filtered.map((i) => {
+                const client = clients.find((c) => c.id === i.clientId)
+                return {
+                  id: i.id,
+                  cells: [
+                    <span key="invoice" className="font-medium">{i.invoiceNumber}</span>,
+                    client?.company ?? "—",
+                    formatDateISO(i.dateIssued),
+                    formatDateISO(i.dueDate),
+                    <span key="total" className="font-mono">
+                      {formatCurrency(i.totalInclVat, settings?.currency ?? "ZAR")}
+                    </span>,
+                    <Badge key="status" variant={statusBadgeVariant(i.status)} className="capitalize">
+                      {humanizeStatus(i.status)}
+                    </Badge>,
+                    <span key="quote" className="text-sm text-muted-foreground">
+                      {i.createdFromQuoteId ? `#${i.createdFromQuoteId}` : "—"}
+                    </span>,
+                    <div key="actions" className="flex gap-2 justify-end">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleDownloadPDF(i)}
+                        title="Download PDF"
                       >
-                        <TableCell colSpan={6} className="h-24 text-center">
-                          <m.div
-                            className="inline-flex flex-col items-center justify-center text-sm text-muted-foreground"
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            transition={{ duration: 0.18 }}
-                          >
-                            <m.svg
-                              width="18"
-                              height="18"
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              className="mb-1"
-                              animate={{ y: [0, -2, 0] }}
-                              transition={{ repeat: Infinity, duration: 1.6, ease: "easeInOut" }}
-                              aria-hidden="true"
-                            >
-                              <rect x="4" y="4" width="16" height="16" rx="3" stroke="currentColor" strokeWidth="2" />
-                            </m.svg>
-                            No invoices found.
-                          </m.div>
-                        </TableCell>
-                      </m.tr>
-                    </AnimatePresence>
-                  )}
-
-                  {!loading && filtered.length > 0 && (
-                    <AnimatePresence initial={false}>
-                      {filtered.map((i) => {
-                        const client = clients.find((c) => c.id === i.clientId)
-                        return (
-                          <m.tr
-                            key={i.id}
-                            initial={{ opacity: 0, y: 4 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, y: -2 }}
-                            transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
-                          >
-                            <TableCell className="font-medium">{i.invoiceNumber}</TableCell>
-                            <TableCell>{client?.company ?? "—"}</TableCell>
-                            <TableCell>{formatDateISO(i.dateIssued)}</TableCell>
-                            <TableCell>{formatDateISO(i.dueDate)}</TableCell>
-                            <TableCell className="text-right">
-                              {formatCurrency(i.totalInclVat, settings?.currency ?? "ZAR")}
-                            </TableCell>
-                            <TableCell className="text-right">
-                              <Badge variant={statusBadgeVariant(i.status)} className="capitalize">
-                                {humanizeStatus(i.status)}
-                              </Badge>
-                            </TableCell>
-                          </m.tr>
-                        )
-                      })}
-                    </AnimatePresence>
-                  )}
-                </TableBody>
-              </Table>
-            </div>
+                        <Download className="w-4 h-4" />
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleEditInvoice(i)}
+                        title="Edit Invoice"
+                      >
+                        <Eye className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  ]
+                }
+              })}
+              loading={loading}
+              emptyMessage="No invoices found"
+            />
           </Suspense>
         </CardContent>
       </Card>
+
+      <InvoiceEditor
+        invoice={editingInvoice}
+        open={editorOpen}
+        onOpenChange={setEditorOpen}
+        onSaved={handleSaveInvoice}
+      />
     </m.div>
   )
 }

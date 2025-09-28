@@ -1,8 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { useEffect, useMemo, useState, useTransition, Suspense, startTransition } from "react"
-import Link from "next/link"
+import { useEffect, useMemo, useState, useTransition, Suspense } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -11,18 +10,22 @@ import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
 import { toast } from "sonner"
-import { FilePlus2, Search } from "lucide-react"
-import { fetchClients, fetchCompanySettings, fetchQuotes, formatCurrency, formatDateISO, humanizeStatus } from "@/lib/mappers"
-import type { Client, CompanySettings, Quote } from "@/lib/invoice-types"
+import { FilePlus2, Search, Receipt, ExternalLink } from "lucide-react"
+import { fetchClients, fetchCompanySettings, fetchQuotes, fetchInvoices, formatCurrency, formatDateISO, humanizeStatus } from "@/lib/mappers"
+import type { Client, CompanySettings, Quote, Invoice } from "@/lib/invoice-types"
+import { QuoteStatus } from "@/lib/invoice-types"
 import { AnimatePresence } from "framer-motion"
 import { m } from "@/components/ui/motion"
 import { InlineSpinner } from "@/components/ui/inline-spinner"
+import { useRouter } from "next/navigation"
 
 export default function QuotesPage() {
+  const router = useRouter()
   const [loading, setLoading] = useState(true)
   const [settings, setSettings] = useState<CompanySettings | null>(null)
   const [clients, setClients] = useState<Client[]>([])
   const [quotes, setQuotes] = useState<Quote[]>([])
+  const [invoices, setInvoices] = useState<Invoice[]>([])
 
   const [query, setQuery] = useState("")
   const [status, setStatus] = useState<"all" | Quote["status"]>("all")
@@ -33,11 +36,12 @@ export default function QuotesPage() {
     ;(async () => {
       try {
         setLoading(true)
-        const [s, cs, qs] = await Promise.all([fetchCompanySettings(), fetchClients(), fetchQuotes()])
+        const [s, cs, qs, invs] = await Promise.all([fetchCompanySettings(), fetchClients(), fetchQuotes(), fetchInvoices()])
         if (!mounted) return
         setSettings(s)
         setClients(cs)
         setQuotes(qs)
+        setInvoices(invs)
       } catch (e) {
         console.error(e)
         toast.error("Failed to load quotes")
@@ -75,6 +79,22 @@ export default function QuotesPage() {
       default:
         return "secondary" as const
     }
+  }
+
+  const handleNewQuote = () => {
+    router.push("/quotes/new")
+  }
+
+  const handleEditQuote = (quote: Quote) => {
+    router.push(`/quotes/${quote.id}/edit`)
+  }
+
+  const getInvoiceForQuote = (quoteId: string) => {
+    return invoices.find(invoice => invoice.createdFromQuoteId === quoteId)
+  }
+
+  const handleViewInvoice = (invoice: Invoice) => {
+    router.push(`/invoices/${invoice.id}`)
   }
 
   return (
@@ -120,7 +140,7 @@ export default function QuotesPage() {
                 value={status}
                 onValueChange={(v) =>
                   startUiTransition(() => {
-                    setStatus(v as any)
+                    setStatus(v as "all" | Quote["status"])
                   })
                 }
               >
@@ -141,17 +161,9 @@ export default function QuotesPage() {
             <div className="grow" />
 
             <m.div whileHover={{ y: -2 }} whileTap={{ scale: 0.98 }} transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}>
-              <Button asChild>
-                <Link
-                  href="#"
-                  onClick={(e) => {
-                    e.preventDefault()
-                    toast.info("Quote editor not wired yet")
-                  }}
-                >
-                  <FilePlus2 className="mr-2 h-4 w-4" aria-hidden="true" />
-                  New Quote
-                </Link>
+              <Button onClick={handleNewQuote}>
+                <FilePlus2 className="mr-2 h-4 w-4" aria-hidden="true" />
+                New Quote
               </Button>
             </m.div>
           </div>
@@ -170,12 +182,14 @@ export default function QuotesPage() {
                     <TableHead>Valid Until</TableHead>
                     <TableHead className="text-right">Total</TableHead>
                     <TableHead className="text-right">Status</TableHead>
+                    <TableHead className="text-center">Invoice</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
                   </tr>
                 </TableHeader>
                 <TableBody>
                   {loading && (
                     <tr>
-                      <TableCell colSpan={6} className="h-24 text-center text-sm text-muted-foreground">
+                      <TableCell colSpan={8} className="h-24 text-center text-sm text-muted-foreground">
                         Loading…
                       </TableCell>
                     </tr>
@@ -190,7 +204,7 @@ export default function QuotesPage() {
                         exit={{ opacity: 0 }}
                         transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
                       >
-                        <TableCell colSpan={6} className="h-24 text-center">
+                        <TableCell colSpan={8} className="h-24 text-center">
                           <m.div
                             className="inline-flex flex-col items-center justify-center text-sm text-muted-foreground"
                             initial={{ opacity: 0 }}
@@ -220,6 +234,7 @@ export default function QuotesPage() {
                     <AnimatePresence initial={false}>
                       {filtered.map((q) => {
                         const client = clients.find((c) => c.id === q.clientId)
+                        const invoice = getInvoiceForQuote(q.id)
                         return (
                           <m.tr
                             key={q.id}
@@ -240,6 +255,29 @@ export default function QuotesPage() {
                                 {humanizeStatus(q.status)}
                               </Badge>
                             </TableCell>
+                            <TableCell className="text-center">
+                              {invoice ? (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => handleViewInvoice(invoice)}
+                                  className="text-green-600 border-green-600 hover:bg-green-50"
+                                >
+                                  <Receipt className="w-3 h-3 mr-1" />
+                                  {invoice.invoiceNumber}
+                                  <ExternalLink className="w-3 h-3 ml-1" />
+                                </Button>
+                              ) : q.status === "accepted" ? (
+                                <span className="text-xs text-muted-foreground">Auto-generated</span>
+                              ) : (
+                                <span className="text-xs text-muted-foreground">—</span>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <Button variant="outline" size="sm" onClick={() => handleEditQuote(q)}>
+                                Edit
+                              </Button>
+                            </TableCell>
                           </m.tr>
                         )
                       })}
@@ -251,6 +289,7 @@ export default function QuotesPage() {
           </Suspense>
         </CardContent>
       </Card>
+
     </m.div>
   )
 }
