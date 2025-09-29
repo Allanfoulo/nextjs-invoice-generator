@@ -114,9 +114,9 @@ export function mapQuoteRow(row: unknown): Quote {
     valid_until: string
     client_id: string
     quote_items: Array<{
-      id: string
       quote_id: string
       item_id: string
+      updated_at: string
       items: {
         id: string
         description: string
@@ -140,9 +140,9 @@ export function mapQuoteRow(row: unknown): Quote {
     created_at: string
     updated_at: string
   }
-  
+
   const items =
-    quote.quote_items?.map((qi) => toItem(qi.items)) ?? []
+    quote.quote_items?.map((qi) => qi.items ? toItem(qi.items) : null).filter(Boolean) ?? []
 
   return {
     id: quote.id,
@@ -206,11 +206,11 @@ export function mapInvoiceRow(row: unknown): Invoice {
   }
 
   const items =
-    invoice.invoice_items?.map((ii) => ({
+    invoice.invoice_items?.map((ii) => ii.items ? ({
       ...toItem(ii.items),
       qty: ii.quantity, // Use quantity from invoice_items instead of items
       unitPrice: ii.unit_price, // Use unit_price from invoice_items instead of items
-    })) ?? []
+    }) : null).filter(Boolean) ?? []
 
   return {
     id: invoice.id,
@@ -262,7 +262,14 @@ export async function fetchClients(): Promise<Client[]> {
 export async function fetchQuotes(): Promise<Quote[]> {
   const { data, error } = await supabase
     .from("quotes")
-    .select("*, quote_items(items(*))")
+    .select(`
+      *,
+      client:clients(*),
+      quote_items(
+        *,
+        items:items(*)
+      )
+    `)
     .order("created_at", { ascending: false })
 
   if (error) {
@@ -365,4 +372,109 @@ export function formatCurrency(amount: number, currency = "ZAR") {
 
 export function humanizeStatus(status: string) {
   return status.replace(/_/g, " ")
+}
+
+export async function fetchQuoteById(quoteId: string, userId: string) {
+  console.log("fetchQuoteById called with:", { quoteId, userId })
+
+  let query = supabase
+    .from("quotes")
+    .select(`
+      *,
+      client:clients(*),
+      quote_items(
+        *,
+        items:items(*)
+      )
+    `)
+    .eq("id", quoteId)
+
+  // Only add user filter if userId is provided
+  if (userId) {
+    query = query.eq("created_by_user_id", userId)
+  }
+
+  const { data: quote, error } = await query.single()
+
+  if (error) {
+    console.error("fetchQuoteById detailed error:", {
+      message: error.message,
+      code: error.code,
+      details: error.details,
+      hint: error.hint,
+      quoteId,
+      userId
+    })
+    return null
+  }
+
+  if (!quote) {
+    console.log("fetchQuoteById: No quote found for:", { quoteId, userId })
+    return null
+  }
+
+  console.log("fetchQuoteById: Quote found, fetching company settings...")
+
+  // Fetch company settings separately
+  const settings = await fetchCompanySettings()
+
+  if (!settings) {
+    console.log("fetchQuoteById: No company settings found, using defaults")
+  }
+
+  return {
+    quote: mapQuoteRow(quote),
+    client: mapClientRow(quote.client),
+    settings: settings
+  }
+}
+
+export async function fetchInvoiceById(invoiceId: string, userId: string) {
+  console.log("fetchInvoiceById called with:", { invoiceId, userId })
+
+  const { data: invoice, error } = await supabase
+    .from("invoices")
+    .select(`
+      *,
+      client:clients(*),
+      invoice_items(
+        *,
+        items:items(*)
+      )
+    `)
+    .eq("id", invoiceId)
+    .eq("created_by_user_id", userId)
+    .single()
+
+  if (error) {
+    console.error("fetchInvoiceById detailed error:", {
+      message: error.message,
+      code: error.code,
+      details: error.details,
+      hint: error.hint,
+      invoiceId,
+      userId
+    })
+    return null
+  }
+
+  if (!invoice) {
+    console.log("fetchInvoiceById: No invoice found for:", { invoiceId, userId })
+    return null
+  }
+
+  console.log("fetchInvoiceById: Invoice found, fetching company settings...")
+
+  // Fetch company settings separately
+  const settings = await fetchCompanySettings()
+
+  if (!settings) {
+    console.log("fetchInvoiceById: No company settings found, using defaults")
+  }
+
+  return {
+    invoice: mapInvoiceRow(invoice),
+    client: mapClientRow(invoice.client),
+    settings: settings
+  }
 }
