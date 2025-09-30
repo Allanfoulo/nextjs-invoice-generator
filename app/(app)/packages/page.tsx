@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
@@ -23,15 +23,6 @@ function formatCurrency(amount: number, currency: string) {
       GBP: "en-GB",
       CAD: "en-CA",
       AUD: "en-AU",
-    }
-
-    const symbolMap: Record<string, string> = {
-      USD: "$",
-      ZAR: "R",
-      EUR: "€",
-      GBP: "£",
-      CAD: "$",
-      AUD: "$",
     }
 
     const locale = localeMap[currency] || "en-US"
@@ -105,26 +96,7 @@ export default function PackagesPage() {
 
   const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
-  useEffect(() => {
-    loadData()
-  }, [])
-
-  const loadData = async () => {
-    try {
-      const [packagesData, itemsData] = await Promise.all([
-        fetchPackages(),
-        fetchItems()
-      ])
-      setPackages(packagesData)
-      setAvailableItems(itemsData)
-    } catch (error) {
-      console.error("Failed to load data:", error)
-      toast.error("Failed to load data")
-    }
-    setLoading(false)
-  }
-
-  const fetchPackages = async (): Promise<PackageWithItems[]> => {
+  const fetchPackages = useCallback(async (): Promise<PackageWithItems[]> => {
     const { data, error } = await supabase
       .from("packages")
       .select("*, package_items(items(*))")
@@ -142,13 +114,13 @@ export default function PackagesPage() {
       price_excl_vat: pkg.price_excl_vat,
       price_incl_vat: pkg.price_incl_vat,
       currency: pkg.currency || "USD",
-      items: pkg.package_items?.map((pi: any) => pi.items) || [],
+      items: pkg.package_items?.map((pi: { items: Item }) => pi.items) || [],
       created_at: pkg.created_at,
       updated_at: pkg.updated_at,
     })) || []
-  }
+  }, [])
 
-  const fetchItems = async (): Promise<Item[]> => {
+  const fetchItems = useCallback(async (): Promise<Item[]> => {
     const { data, error } = await supabase
       .from("items")
       .select("*")
@@ -159,7 +131,26 @@ export default function PackagesPage() {
       return []
     }
     return data || []
-  }
+  }, [supabase])
+
+  const loadData = useCallback(async () => {
+    try {
+      const [packagesData, itemsData] = await Promise.all([
+        fetchPackages(),
+        fetchItems()
+      ])
+      setPackages(packagesData)
+      setAvailableItems(itemsData)
+    } catch (error) {
+      console.error("Failed to load data:", error)
+      toast.error("Failed to load data")
+    }
+    setLoading(false)
+  }, [fetchItems, fetchPackages])
+
+  useEffect(() => {
+    loadData()
+  }, [loadData])
 
   const filteredItems = availableItems.filter(item =>
     item.description.toLowerCase().includes(itemSearch.toLowerCase()) &&
