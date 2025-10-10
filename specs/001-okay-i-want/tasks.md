@@ -45,11 +45,22 @@ description: "Task list for Template-Based SLA Generation System implementation"
 
 - [x] T005 Create SLA database schema (sla_templates, service_agreements, template_variables, variable_substitutions, audit_log)
 - [x] T006 [P] Implement RLS policies for SLA data with role-based access control
+  - Internal users: Full access to all SLA data (create, read, update, delete)
+  - Client users: View-only access to their own agreements only
+  - Anonymous users: No access to SLA data
+  - Security definer functions for administrative operations
+  - Row-level security for service_agreements, sla_templates, audit_log tables
 - [x] T007 [P] Setup SLA API routing structure in app/api/sla/
 - [x] T008 Create base SLA types and interfaces in lib/sla/sla-types.ts
 - [x] T009 Configure SLA-specific error handling and logging infrastructure
 - [x] T010 Setup environment configuration for SLA settings
 - [x] T011 Create base Supabase client extensions for SLA operations
+- [x] T011.1 [P] Create comprehensive RLS policy tests in tests/sla/rls-policies.test.ts
+  - Test internal user full access to all SLA data
+  - Test client user view-only access to own agreements
+  - Test anonymous user blocked access
+  - Test security definer function permissions
+  - Test cross-tenant data isolation
 
 **Completed**: 2025-01-09
 **Status**: All Phase 2 foundational tasks completed successfully. Core infrastructure ready for User Story implementation.
@@ -89,10 +100,15 @@ description: "Task list for Template-Based SLA Generation System implementation"
 
 - [ ] T015 [P] [US1] Create SLA template management service in lib/sla/sla-service.ts
 - [ ] T016 [P] [US1] Create template selector component in components/sla/template-selector.tsx
+  - Mobile-first responsive design with touch-optimized interface
+  - Breakpoints: Mobile (<768px), Tablet (768px-1024px), Desktop (>1024px)
 - [ ] T017 [US1] Create variable preview component in components/sla/variable-preview.tsx
+  - Mobile-optimized real-time preview with responsive layout
 - [ ] T018 [US1] Implement template API endpoints in app/api/sla/templates/route.ts
 - [ ] T019 [US1] Create SLA dashboard page in app/(app)/sla/page.tsx
+  - Responsive dashboard with mobile-first layout and touch interactions
 - [ ] T020 [US1] Create template library page in app/(app)/sla/templates/page.tsx
+  - Mobile-optimized template browsing with swipe gestures and responsive grid
 - [ ] T021 [US1] Implement quote data extraction for variable substitution in lib/sla/variable-mapper.ts
 - [ ] T022 [US1] Add template preview functionality with real-time variable substitution
 - [ ] T023 [US1] Create package type detection logic from quote items
@@ -117,8 +133,10 @@ description: "Task list for Template-Based SLA Generation System implementation"
 ### Implementation for User Story 2
 
 - [ ] T028 [P] [US2] Create template editor component in components/sla/template-editor.tsx
+  - Mobile-first template editing with responsive form layouts and touch-optimized controls
 - [ ] T029 [P] [US2] Create clause library service in lib/sla/clause-service.ts
-- [ ] T030 [US2] Create performance metric configuration component in components/sla/performance-config.tsx
+- [ ] T030 [P] [US2] Create performance metric configuration component in components/sla/performance-config.tsx
+  - Touch-friendly slider controls and responsive metric configuration interface
 - [ ] T031 [US2] Implement layered editing validation (basic vs advanced changes)
 - [ ] T032 [US2] Create clause library API endpoints in app/api/sla/clauses/route.ts
 - [ ] T033 [US2] Add approval workflow for advanced template changes
@@ -131,9 +149,11 @@ description: "Task list for Template-Based SLA Generation System implementation"
 
 ---
 
-## Phase 5: User Story 3 - Intelligent SLA Generation with AI-Powered Suggestions (Priority: P1)
+## Phase 5: User Story 3 - One-Time AI Template Generation (Priority: P1)
 
 **Goal**: One-time AI generation of 4 package templates with manual maintenance and smart variable suggestions
+
+**Critical Constraint**: AI is used ONLY for initial template generation, then disabled. All ongoing template work is manual.
 
 **Independent Test**: Enable AI template generation, validate suggested terms for quote value and industry, verify AI-assisted creation quality
 
@@ -145,16 +165,16 @@ description: "Task list for Template-Based SLA Generation System implementation"
 
 ### Implementation for User Story 3
 
-- [ ] T041 [P] [US3] Create AI template generation service in lib/sla/ai-template-service.ts
-- [ ] T042 [US3] Implement one-time AI template generation for 4 package types
-- [ ] T043 [US3] Create template initialization endpoint in app/api/sla/templates/initialize/route.ts
-- [ ] T044 [US3] Add AI-assisted variable suggestion system
-- [ ] T045 [US3] Create template quality validation service
-- [ ] T046 [US3] Implement manual template maintenance interface
-- [ ] T047 [US3] Add template versioning for AI-generated templates
-- [ ] T048 [US3] Create template comparison and diff viewing
-- [ ] T049 [US3] Add AI suggestion fallback to default templates
-- [ ] T050 [US3] Integrate with User Story 2 template editor for AI suggestions
+- [ ] T041 [P] [US3] Create one-time AI template generation service in lib/sla/ai-template-service.ts (AI disabled after initial use)
+- [ ] T042 [US3] Implement one-time AI template generation for 4 package types (single execution only)
+- [ ] T043 [US3] Create template initialization endpoint in app/api/sla/templates/initialize/route.ts (one-time use)
+- [ ] T044 [US3] Add one-time AI-assisted variable suggestion system (suggestions saved, AI disabled)
+- [ ] T045 [US3] Create template quality validation service (manual validation after AI generation)
+- [ ] T046 [US3] Implement manual template maintenance interface (post-AI template management)
+- [ ] T047 [US3] Add template versioning for AI-generated templates (manual versioning after AI)
+- [ ] T048 [US3] Create template comparison and diff viewing (for manual template updates)
+- [ ] T049 [US3] Add AI suggestion fallback to default templates (graceful fallback during one-time generation)
+- [ ] T050 [US3] Integrate with User Story 2 template editor for initial AI suggestions only
 
 **Checkpoint**: All core user stories should now be independently functional
 
@@ -205,6 +225,7 @@ description: "Task list for Template-Based SLA Generation System implementation"
 - [ ] T068 [P] [US5] Create performance tracking service in lib/sla/performance-service.ts
 - [ ] T069 [P] [US5] Create breach detection system in lib/sla/breach-detection.ts
 - [ ] T070 [US5] Create compliance dashboard component in components/sla/compliance-dashboard.tsx
+  - Mobile-first responsive dashboard with touch-optimized compliance visualization
 - [ ] T071 [US5] Implement performance monitoring API in app/api/sla/performance/route.ts
 - [ ] T072 [US5] Create breach management API in app/api/sla/breaches/route.ts
 - [ ] T073 [US5] Create performance tracking dashboard in app/(app)/sla/[id]/performance/page.tsx
@@ -221,14 +242,18 @@ description: "Task list for Template-Based SLA Generation System implementation"
 
 - [ ] T078 [P] Create comprehensive SLA documentation in docs/sla/
 - [ ] T079 [P] Implement SLA integration in main dashboard
-- [ ] T080 [P] Add automated SLA generation when quotes change to accepted status
-- [ ] T081 Create SLA reporting and analytics system
-- [ ] T082 [P] Add comprehensive unit tests across all SLA components
-- [ ] T083 [P] Security hardening for SLA data and templates
-- [ ] T084 Performance optimization for template processing and PDF generation
-- [ ] T085 Create user training materials and onboarding guide
-- [ ] T086 Implement backup and recovery for SLA templates
-- [ ] T087 Run validation against quickstart.md implementation scenarios
+- [ ] T080 [P] Create quote status monitoring service in lib/sla/quote-monitor.ts
+- [ ] T081 [P] [FR-013] Implement automated SLA generation trigger when quotes change to 'accepted' status in lib/sla/auto-generation.ts
+- [ ] T082 [P] [FR-013] Create database trigger for quote status changes in supabase/migrations/20250110_quote_status_trigger.sql
+- [ ] T083 [P] [FR-013] Add SLA generation queue for processing accepted quotes in lib/sla/generation-queue.ts
+- [ ] T084 [P] [FR-013] Create notification system for auto-generated SLAs in lib/sla/notification-service.ts
+- [ ] T085 Create SLA reporting and analytics system
+- [ ] T086 [P] Add comprehensive unit tests across all SLA components
+- [ ] T087 [P] Security hardening for SLA data and templates
+- [ ] T088 Performance optimization for template processing and PDF generation
+- [ ] T089 Create user training materials and onboarding guide
+- [ ] T090 Implement backup and recovery for SLA templates
+- [ ] T091 Run validation against quickstart.md implementation scenarios
 
 ---
 

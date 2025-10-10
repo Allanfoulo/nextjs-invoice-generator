@@ -133,11 +133,19 @@ Users need to monitor ongoing compliance with SLA terms, track performance metri
 - **FR-009**: System MUST provide multi-channel distribution (email, download, sharing links) with tracking capabilities
 - **FR-010**: System MUST integrate internal simple e-signature functionality with complete audit trails and verification
 - **FR-011**: System MUST monitor real-time compliance using combined system + business metrics with weighted scoring and customizable thresholds and automated breach detection and alerting
+  - **System Metrics**: Uptime percentage (99.9% target), API response time (<200ms), page load time (<2s), error rate (<0.1%)
+  - **Business Metrics**: SLA completion rate, client satisfaction scores, breach resolution time, compliance percentage
+  - **Weighted Scoring**: System metrics 40% weight, business metrics 60% weight, customizable per client
+  - **Thresholds**: Configurable alert levels (warning at 90%, critical at 95%, breach at 100%)
 - **FR-012**: System MUST maintain comprehensive audit trails for all agreement modifications and compliance events
 - **FR-013**: System MUST support automated SLA generation when quotes change to accepted status
 - **FR-014**: System MUST provide comprehensive reporting and analytics for SLA performance and compliance metrics
 - **FR-015**: System MUST support template versioning and change management for agreement updates
 - **FR-016**: System MUST validate all performance metrics against industry standards and legal requirements
+  - **Industry Standards**: ISO/IEC 20000 (IT service management), SOC 2 compliance, GDPR data protection
+  - **Legal Requirements**: Local jurisdiction compliance, electronic signature laws (ESIGN/UETA), data retention policies
+  - **Validation Rules**: Metric ranges within industry benchmarks, compliance checklist per jurisdiction, audit trail completeness
+  - **Standards Database**: Configurable rule sets for different industries and regions
 
 ### Key Entities *(include if feature involves data)*
 
@@ -160,6 +168,9 @@ Users need to monitor ongoing compliance with SLA terms, track performance metri
 - **SC-005**: SLA breach detection occurs within 2 minutes of threshold violation
 - **SC-006**: System supports 100+ concurrent SLA monitoring operations without performance degradation
 - **SC-007**: AI suggestions achieve 85% acceptance rate for recommended terms and clauses
+  - **Acceptance Definition**: User accepts AI suggestion without modification within 24 hours
+  - **Measurement**: (Accepted suggestions ÷ Total suggestions) × 100, measured over first 100 uses
+  - **Suggestion Types**: Template variable mappings, clause recommendations, performance metric defaults
 - **SC-008**: 100% of agreement modifications maintain complete audit trails with legal compliance verification
 - **SC-009**: Template library covers all 4 package types with specialized clauses and compliance requirements
 - **SC-010**: E-signature process completion rate exceeds 92% with average completion time under 5 minutes
