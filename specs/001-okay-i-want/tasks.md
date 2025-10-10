@@ -92,9 +92,9 @@ description: "Task list for Template-Based SLA Generation System implementation"
 
 **NOTE: Write these tests FIRST, ensure they FAIL before implementation**
 
-- [ ] T012 [P] [US1] Unit test for template filtering by package type in tests/sla/template-selector.test.tsx
-- [ ] T013 [P] [US1] Integration test for quote-to-template data mapping in tests/integration/template-mapping.test.ts
-- [ ] T014 [US1] Contract test for template API endpoints in tests/sla/api/templates.test.ts
+- [x] T012 [P] [US1] Unit test for template filtering by package type in tests/sla/template-selector.test.tsx
+- [x] T013 [P] [US1] Integration test for quote-to-template data mapping in tests/integration/template-mapping.test.ts
+- [x] T014 [US1] Contract test for template API endpoints in tests/sla/api/templates.test.ts
 
 ### Implementation for User Story 1
 
