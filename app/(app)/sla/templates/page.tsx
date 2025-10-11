@@ -55,7 +55,7 @@ import {
 import { slaService } from '@/lib/sla/sla-service';
 import { SLATemplate, PackageType } from '@/lib/sla/sla-types';
 import TemplateSelector from '@/components/sla/template-selector';
-import VariablePreview from '@/components/variable-preview/variable-preview';
+import VariablePreview from '@/components/sla/variable-preview';
 import Link from 'next/link';
 
 /**

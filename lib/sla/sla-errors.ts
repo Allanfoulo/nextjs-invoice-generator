@@ -288,3 +288,67 @@ export class PerformanceMetricError extends SLAError {
     this.value = value;
   }
 }
+
+/**
+ * Error handler for SLA operations
+ */
+export class SLAErrorHandler {
+  /**
+   * Handle errors and return appropriate error responses
+   */
+  static handleError(error: unknown, context?: string): {
+    success: false;
+    error: {
+      code: string;
+      message: string;
+      details?: any;
+    };
+  } {
+    if (error instanceof SLAError) {
+      return {
+        success: false,
+        error: {
+          code: error.code || error.type,
+          message: error.message,
+          details: error.details
+        }
+      };
+    }
+
+    if (error instanceof Error) {
+      return {
+        success: false,
+        error: {
+          code: 'UNKNOWN_ERROR',
+          message: error.message,
+          details: error.stack
+        }
+      };
+    }
+
+    return {
+      success: false,
+      error: {
+        code: 'UNKNOWN_ERROR',
+        message: 'An unknown error occurred',
+        details: typeof error === 'string' ? error : JSON.stringify(error)
+      }
+    };
+  }
+
+  /**
+   * Log errors for debugging
+   */
+  static logError(error: unknown, context?: string): void {
+    console.error(`[SLA Error] ${context || 'Unknown context'}:`, error);
+
+    if (error instanceof SLAError) {
+      console.error('SLA Error Details:', {
+        type: error.type,
+        code: error.code,
+        details: error.details,
+        context: error.context
+      });
+    }
+  }
+}
